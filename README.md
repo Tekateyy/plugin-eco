@@ -127,6 +127,19 @@ partagent le parseur, les règles, l'inférence de contexte et le calcul de scor
 Un verdict qui différerait entre l'IDE et la pipeline ruinerait la confiance dans
 les deux.
 
+Le moteur s'utilise aussi comme bibliothèque, pour bâtir un rapport sur mesure :
+
+```js
+const { initParser, parse, collectFindings, computeScore, specFor } = require('plugin-eco');
+
+await initParser();
+const findings = collectFindings(parse(source, 'java').rootNode, specFor('java'));
+console.log(computeScore(findings).letter); // 'A' … 'E'
+```
+
+Ce point d'entrée n'expose que le moteur : le code d'intégration VSCode en est
+absent, et rien n'y importe `vscode`.
+
 ## Choix techniques
 
 **Analyse statique d'abord, mesure à l'exécution ensuite.** Un profileur donne

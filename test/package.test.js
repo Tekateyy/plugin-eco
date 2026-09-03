@@ -54,6 +54,7 @@ describe('contenu du paquet npm', () => {
   test('le paquet contient tout ce qu\'il faut pour tourner', () => {
     for (const requis of [
       'package.json', 'README.md', 'LICENSE',
+      'out/index.js', 'out/index.d.ts',
       'out/cli.js', 'out/rules.js', 'out/scoring.js', 'out/context.js',
       'out/languages.js', 'out/parser.js',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
@@ -99,5 +100,42 @@ describe('sûreté du manifeste', () => {
   test('la licence et le dépôt sont déclarés', () => {
     assert.strictEqual(manifest.license, 'MIT');
     assert.ok(manifest.repository?.url);
+  });
+
+  test('le point d\'entrée npm ne passe pas par le code d\'extension', () => {
+    // `main` sert VSCode, qui le charge en chemin absolu et ignore `exports`.
+    // Un `require('plugin-eco')` doit atterrir sur le moteur, pas sur
+    // extension.js — qui importe `vscode` et casse hors de l'éditeur.
+    assert.strictEqual(manifest.exports['.'], './out/index.js');
+    assert.strictEqual(manifest.main, './out/extension');
+  });
+});
+
+describe('point d\'entrée bibliothèque', () => {
+  // Le vrai test de non-régression : charger le paquet comme le ferait un
+  // consommateur npm. Avant `exports`, ceci levait sur `require('vscode')`.
+  const api = require(path.join(ROOT, 'out', 'index.js'));
+
+  test('le moteur est exposé', () => {
+    for (const nom of ['initParser', 'parse', 'collectFindings',
+                       'computeScore', 'inferContext', 'specFor']) {
+      assert.strictEqual(typeof api[nom], 'function', `${nom} manque à l'API`);
+    }
+  });
+
+  test('rien de l\'intégration VSCode ne fuit', () => {
+    for (const interdit of ['activate', 'buildWebviewHtml', 'analyzeWorkspace']) {
+      assert.strictEqual(api[interdit], undefined, `${interdit} ne doit pas être exposé`);
+    }
+  });
+
+  test('initParser trouve les grammaires sans qu\'on lui donne le chemin', async () => {
+    // Un consommateur npm ne peut pas connaître la racine d'installation.
+    await api.initParser();
+    const findings = api.collectFindings(
+      api.parse('class T { void m() { String q = "SELECT * FROM t"; } }', 'java').rootNode,
+      api.specFor('java')
+    );
+    assert.strictEqual(findings.length, 1);
   });
 });

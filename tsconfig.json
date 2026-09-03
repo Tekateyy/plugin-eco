@@ -6,6 +6,9 @@
     "outDir": "out",
     "rootDir": "src",
     "sourceMap": true,
+    // Les .d.ts servent le champ "types" du manifeste : sans eux, un
+    // consommateur TypeScript du paquet npm n'aurait aucune signature.
+    "declaration": true,
     "strict": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
