@@ -6,6 +6,7 @@ const path = require('node:path');
 const { initParser, parse } = require('../out/parser');
 const { collectFindings } = require('../out/rules');
 const { computeScore } = require('../out/scoring');
+const { specFor } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -15,7 +16,7 @@ let score;
 before(async () => {
   await initParser(ROOT);
   const code = fs.readFileSync(path.join(ROOT, 'samples', 'Example.java'), 'utf8');
-  findings = collectFindings(parse(code).rootNode);
+  findings = collectFindings(parse(code, 'java').rootNode, specFor('java'));
   score = computeScore(findings);
 });
 
@@ -57,7 +58,7 @@ describe('parser', () => {
   test('parse() échoue clairement si le parser n\'est pas initialisé', () => {
     // initParser() a déjà tourné dans before(), on vérifie seulement que
     // l'analyse d'un fichier vide ne casse pas.
-    assert.doesNotThrow(() => parse(''));
+    assert.doesNotThrow(() => parse('', 'java'));
   });
 
   test('le WASM est chargé depuis out/wasm', () => {

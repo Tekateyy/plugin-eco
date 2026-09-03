@@ -1,13 +1,6 @@
 import Parser from 'web-tree-sitter';
 import { Finding } from './types';
-
-/** Types de nœuds tree-sitter représentant une boucle en Java. */
-const LOOP_TYPES = new Set([
-  'for_statement',
-  'enhanced_for_statement',
-  'while_statement',
-  'do_statement',
-]);
+import { LanguageSpec, NodeNames, RuleId } from './languages';
 
 /** Méthodes d'I/O bloquantes à détecter lorsqu'elles sont appelées en boucle. */
 const IO_METHOD_NAMES = new Set([
@@ -16,20 +9,32 @@ const IO_METHOD_NAMES = new Set([
 ]);
 
 /**
- * Parcourt l'AST tree-sitter Java et collecte tous les findings énergivores.
+ * Parcourt l'AST et collecte les findings énergivores applicables au langage.
+ *
+ * Les règles évaluées, comme les noms de nœuds, viennent du descripteur : ce
+ * module ne connaît aucun langage en particulier.
  *
  * Règles implémentées :
- *  1. Boucle imbriquée                     (haute,   poids 15)
- *  2. Concaténation String `+=` en boucle  (moyenne, poids  7)
- *  3. Création d'objet `new X()` en boucle (moyenne, poids  7)
- *  4. Pattern.compile() en boucle          (haute,   poids 12)
- *  5. I/O bloquant en boucle               (haute,   poids 12)
- *  6. Requête SQL sans LIMIT               (haute,   poids 12)
+ *  1. nested-loops             Boucle imbriquée               (haute,   poids 15)
+ *  2. string-concat-in-loop    Concaténation `+=` en boucle   (moyenne, poids  7)
+ *  3. object-creation-in-loop  Instanciation en boucle        (moyenne, poids  7)
+ *  4. regex-compile-in-loop    Pattern.compile() en boucle    (haute,   poids 12)
+ *  5. blocking-io-in-loop      I/O bloquant en boucle         (haute,   poids 12)
+ *  6. sql-without-limit        Requête SQL sans LIMIT         (haute,   poids 12)
  */
-export function collectFindings(root: Parser.SyntaxNode): Finding[] {
+export function collectFindings(root: Parser.SyntaxNode, spec: LanguageSpec): Finding[] {
   const findings: Finding[] = [];
-  traverse(root, 0, false, findings);
+  const ctx = {
+    nodes: spec.nodes,
+    active: (rule: RuleId) => spec.rules.includes(rule),
+  };
+  traverse(root, 0, false, findings, ctx);
   return findings;
+}
+
+interface Ctx {
+  nodes: NodeNames;
+  active: (rule: RuleId) => boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -40,14 +45,15 @@ function traverse(
   node: Parser.SyntaxNode,
   loopDepth: number,
   inLoop: boolean,
-  findings: Finding[]
+  findings: Finding[],
+  ctx: Ctx
 ): void {
-  const isLoop = LOOP_TYPES.has(node.type);
+  const isLoop = ctx.nodes.loops.includes(node.type);
   const nextDepth = isLoop ? loopDepth + 1 : loopDepth;
   const nextInLoop = inLoop || isLoop;
 
   // ── Règle 1 : boucle imbriquée ───────────────────────────────────────────
-  if (isLoop && loopDepth >= 1) {
+  if (ctx.active('nested-loops') && isLoop && loopDepth >= 1) {
     findings.push({
       startLine: node.startPosition.row,
       startChar: node.startPosition.column,
@@ -62,7 +68,8 @@ function traverse(
   }
 
   // ── Règle 2 : concaténation String avec += en boucle ─────────────────────
-  if (nextInLoop && node.type === 'assignment_expression') {
+  if (ctx.active('string-concat-in-loop') && nextInLoop &&
+      ctx.nodes.compoundAssignment.includes(node.type)) {
     if (node.children.some(c => c.text === '+=')) {
       findings.push({
         startLine: node.startPosition.row,
@@ -79,7 +86,8 @@ function traverse(
   }
 
   // ── Règle 3 : création d'objet en boucle ─────────────────────────────────
-  if (nextInLoop && node.type === 'object_creation_expression') {
+  if (ctx.active('object-creation-in-loop') && nextInLoop &&
+      ctx.nodes.objectCreation.includes(node.type)) {
     findings.push({
       startLine: node.startPosition.row,
       startChar: node.startPosition.column,
@@ -94,12 +102,15 @@ function traverse(
   }
 
   // ── Règles 4 et 5 : appels de méthodes détectables en boucle ─────────────
-  if (nextInLoop && node.type === 'method_invocation') {
+  // Ces deux règles lisent les champs `name` et `object`, propres à la
+  // structure d'appel de Java. Elles ne sont pour l'instant déclarées que
+  // pour ce langage ; l'équivalent JS/TS relève du jeu de règles web.
+  if (nextInLoop && ctx.nodes.call.includes(node.type)) {
     const methodName = node.childForFieldName('name')?.text ?? '';
     const objectName = node.childForFieldName('object')?.text ?? '';
 
     // Règle 4 : Pattern.compile() en boucle
-    if (objectName === 'Pattern' && methodName === 'compile') {
+    if (ctx.active('regex-compile-in-loop') && objectName === 'Pattern' && methodName === 'compile') {
       findings.push({
         startLine: node.startPosition.row,
         startChar: node.startPosition.column,
@@ -114,7 +125,7 @@ function traverse(
     }
 
     // Règle 5 : I/O bloquant en boucle
-    if (IO_METHOD_NAMES.has(methodName)) {
+    if (ctx.active('blocking-io-in-loop') && IO_METHOD_NAMES.has(methodName)) {
       findings.push({
         startLine: node.startPosition.row,
         startChar: node.startPosition.column,
@@ -130,7 +141,7 @@ function traverse(
   }
 
   // ── Règle 6 : requête SQL sans pagination (partout, pas seulement en boucle) ──
-  if (node.type === 'string_literal') {
+  if (ctx.active('sql-without-limit') && ctx.nodes.stringLiteral.includes(node.type)) {
     const upper = node.text.toUpperCase();
     if (upper.includes('SELECT') && !upper.includes('LIMIT') && !upper.includes('ROWNUM')) {
       findings.push({
@@ -149,6 +160,6 @@ function traverse(
 
   // Récursion sur les enfants nommés
   for (const child of node.namedChildren) {
-    traverse(child, nextDepth, nextInLoop, findings);
+    traverse(child, nextDepth, nextInLoop, findings, ctx);
   }
 }

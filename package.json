@@ -1,7 +1,7 @@
 {
   "name": "plugin-eco",
   "displayName": "Plugin Eco — Green Coding",
-  "description": "Analyse statique de la consommation énergétique du code Java. Score A–E inspiré du DPE.",
+  "description": "Analyse statique de la consommation énergétique du code Java, JavaScript et TypeScript. Score A–E inspiré du DPE.",
   "version": "0.1.0",
   "publisher": "greencoding",
   "license": "MIT",
@@ -13,8 +13,14 @@
     "vscode": "^1.80.0"
   },
   "categories": ["Linters", "Other"],
-  "keywords": ["green coding", "java", "energy", "performance", "éco"],
-  "activationEvents": ["onLanguage:java"],
+  "keywords": ["green coding", "java", "javascript", "typescript", "energy", "performance", "éco"],
+  "activationEvents": [
+    "onLanguage:java",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact"
+  ],
   "main": "./out/extension",
   "contributes": {
     "commands": [
