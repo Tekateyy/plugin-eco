@@ -9,14 +9,14 @@ fichier s'affiche dans la barre de statut.
 
 ```
 ┌─ éditeur ────────────────────────┐   ┌─ panneau ───────────────┐
-│ for (int i…) {                   │   │                         │
-│   for (int j…) {   ⚡ imbriquée  │   │      ┌───┐              │
-│     s += row[j];   ⚡ String +=  │   │      │ E │  28/100      │
-│   }                              │   │      └───┘              │
+│ for (int i..) {                  │   │                         │
+│   for (int j..) {   <- imbriquée │   │         ┌───┐           │
+│     s += row[j];    <- String += │   │         │ E │  28/100   │
+│   }                              │   │         └───┘           │
 │ }                                │   │  4 hautes, 3 moyennes   │
-│                                  │   │  détail par ligne…      │
+│                                  │   │  détail par ligne...    │
 └──────────────────────────────────┘   └─────────────────────────┘
-              ⚡ Éco: E  ← barre de statut
+   barre de statut :  Éco: E
 ```
 
 ## Utilisation
