@@ -19,9 +19,13 @@ const _grammars = new Map<string, Parser.Language>();
  * quelques millisecondes (mesuré : 5 ms pour tsx, 2 ms pour java), ce qui ne
  * justifie pas la complexité d'un chargement à la demande.
  *
- * @param extensionPath racine de l'extension (context.extensionUri.fsPath)
+ * @param extensionPath racine de l'extension (context.extensionUri.fsPath).
+ *   Par défaut, la racine du paquet installé : un consommateur npm ne peut pas
+ *   deviner ce chemin, VSCode le fournit explicitement.
  */
-export async function initParser(extensionPath: string): Promise<void> {
+export async function initParser(
+  extensionPath: string = path.join(__dirname, '..')
+): Promise<void> {
   if (_parser) return; // déjà initialisé
 
   const wasmDir = path.join(extensionPath, 'out', 'wasm');

@@ -1,0 +1,59 @@
+name: Release
+
+# Publication déclenchée par un tag de version : `git tag v0.1.1 && git push --tags`.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publier sur npm
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Requis pour le trusted publishing : GitHub émet un jeton OIDC éphémère
+      # que npm vérifie contre le dépôt et le workflow déclarés côté registre.
+      # C'est ce qui remplace un NPM_TOKEN stocké en secret.
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          registry-url: 'https://registry.npmjs.org'
+
+      # Le trusted publishing exige npm >= 11.5.1 ; la version embarquée par
+      # Node dépend de l'image du runner, on ne la subit pas.
+      - name: Mettre npm à jour
+        run: npm install -g npm@latest
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Publier une version qui ne correspond pas au tag rendrait l'historique
+      # des versions ininterprétable, et une version npm ne se retire pas.
+      - name: Vérifier que le tag correspond à la version du manifeste
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $GITHUB_REF_NAME et version $PKG divergent." >&2
+            exit 1
+          fi
+
+      - name: Tests
+        run: npm test
+
+      # --provenance signe le paquet et le lie publiquement au commit et au
+      # workflow qui l'ont produit (attestation Sigstore, visible sur npmjs).
+      # Aucun jeton n'est passé : l'authentification vient de l'OIDC ci-dessus.
+      - name: Publier
+        run: npm publish --provenance
