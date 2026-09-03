@@ -75,18 +75,12 @@ describe('await en boucle', () => {
   });
 
   test('s\'applique aussi côté client — un enchaînement coûte partout', () => {
+    // Preuve que les règles universelles franchissent bien le filtre de
+    // contexte ; la matrice elle-même est testée par `ruleAppliesIn`.
     const f = matching(analyze(`
       export async function load(ids: string[]) {
         for (const id of ids) { await fetch('/api/' + id); }
       }`, 'client'), 'await');
-    assert.strictEqual(f.length, 1);
-  });
-
-  test('et même quand le contexte est indéterminé', () => {
-    const f = matching(analyze(`
-      export async function load(ids: string[]) {
-        for (const id of ids) { await go(id); }
-      }`, 'unknown'), 'await');
     assert.strictEqual(f.length, 1);
   });
 });
@@ -117,14 +111,10 @@ describe('I/O synchrone côté serveur', () => {
   });
 
   test('ne se déclenche pas côté client', () => {
+    // Preuve que `collectFindings` consulte bien la table des contextes ; les
+    // autres combinaisons règle × contexte sont couvertes par `ruleAppliesIn`.
     const f = analyze(`
       export function handler() { return fs.readFileSync('./a'); }`, 'client');
-    assert.deepStrictEqual(messages(f), []);
-  });
-
-  test('ni quand le contexte est indéterminé', () => {
-    const f = analyze(`
-      export function handler() { return fs.readFileSync('./a'); }`, 'unknown');
     assert.deepStrictEqual(messages(f), []);
   });
 });
