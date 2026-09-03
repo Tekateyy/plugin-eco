@@ -76,8 +76,9 @@ export interface LanguageSpec {
   grammarFile: string;
   /** `languageId` VSCode couverts par ce descripteur. */
   vscodeLanguageIds: string[];
-  /** Motif de recherche pour le scan workspace. */
-  glob: string;
+  /** Extensions de fichier couvertes, point compris. Source unique : le glob
+   *  du scan VSCode et la reconnaissance par chemin du CLI en découlent. */
+  extensions: string[];
   nodes: NodeNames;
   /** Règles applicables. Une règle absente n'est jamais évaluée. */
   rules: RuleId[];
@@ -154,7 +155,7 @@ export const LANGUAGES: LanguageSpec[] = [
     label: 'Java',
     grammarFile: 'tree-sitter-java.wasm',
     vscodeLanguageIds: ['java'],
-    glob: '**/*.java',
+    extensions: ['.java'],
     nodes: JAVA_NODES,
     rules: JAVA_RULES,
     fixedContext: 'server',
@@ -165,7 +166,7 @@ export const LANGUAGES: LanguageSpec[] = [
     label: 'JavaScript',
     grammarFile: 'tree-sitter-tsx.wasm',
     vscodeLanguageIds: ['javascript', 'javascriptreact'],
-    glob: '**/*.{js,jsx,mjs,cjs}',
+    extensions: ['.js', '.jsx', '.mjs', '.cjs'],
     nodes: JS_NODES,
     rules: JS_RULES,
   },
@@ -175,7 +176,7 @@ export const LANGUAGES: LanguageSpec[] = [
     label: 'TypeScript',
     grammarFile: 'tree-sitter-typescript.wasm',
     vscodeLanguageIds: ['typescript'],
-    glob: '**/*.ts',
+    extensions: ['.ts'],
     nodes: JS_NODES,
     rules: JS_RULES,
   },
@@ -183,7 +184,7 @@ export const LANGUAGES: LanguageSpec[] = [
     label: 'TypeScript React',
     grammarFile: 'tree-sitter-tsx.wasm',
     vscodeLanguageIds: ['typescriptreact'],
-    glob: '**/*.tsx',
+    extensions: ['.tsx'],
     nodes: JS_NODES,
     rules: JS_RULES,
   },
@@ -202,4 +203,33 @@ export function isSupported(languageId: string): boolean {
 /** Fichiers WASM à charger, sans doublon (tsx sert deux descripteurs). */
 export function grammarFiles(): string[] {
   return [...new Set(LANGUAGES.map(l => l.grammarFile))];
+}
+
+/**
+ * Dossiers exclus de toute analyse de projet.
+ *
+ * Partagé par le scan VSCode et le CLI : deux listes divergentes donneraient
+ * deux verdicts différents sur le même dépôt, ce qui ruinerait la confiance
+ * dans l'outil bien plus sûrement qu'une règle imparfaite.
+ */
+export const EXCLUDED_DIRS = [
+  'node_modules', 'target', 'build', 'dist', 'bin', 'out',
+  '.git', '.gradle', '.idea', '.next', 'coverage', 'vendor',
+];
+
+/** Motif VSCode excluant ces dossiers. */
+export function excludeGlob(): string {
+  return `**/{${EXCLUDED_DIRS.join(',')}}/**`;
+}
+
+/** Motif de recherche VSCode pour un langage, dérivé de ses extensions. */
+export function globFor(spec: LanguageSpec): string {
+  const exts = spec.extensions.map(e => e.replace(/^\./, ''));
+  return exts.length === 1 ? `**/*.${exts[0]}` : `**/*.{${exts.join(',')}}`;
+}
+
+/** Descripteur correspondant à un chemin de fichier, ou undefined. */
+export function specForPath(filePath: string): LanguageSpec | undefined {
+  const lower = filePath.toLowerCase();
+  return LANGUAGES.find(l => l.extensions.some(e => lower.endsWith(e)));
 }

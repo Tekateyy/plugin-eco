@@ -3,11 +3,9 @@ import * as path from 'path';
 import { parseWith } from './parser';
 import { collectFindings } from './rules';
 import { computeScore, aggregateScore } from './scoring';
-import { LANGUAGES, LanguageSpec } from './languages';
+import { LANGUAGES, LanguageSpec, globFor, excludeGlob } from './languages';
 import { inferContext } from './context';
 import { FileResult, WorkspaceReport, Score } from './types';
-
-const EXCLUDE = '**/{node_modules,target,build,dist,bin,out,.git,.gradle,.idea,.next,coverage}/**';
 
 /**
  * Scanne tous les fichiers analysables du workspace, calcule un score par
@@ -24,7 +22,7 @@ export async function analyzeWorkspace(
   // faute de quoi on ne saurait plus quelle grammaire lui appliquer.
   const targets: { uri: vscode.Uri; spec: LanguageSpec }[] = [];
   for (const spec of LANGUAGES) {
-    const found = await vscode.workspace.findFiles(spec.glob, EXCLUDE);
+    const found = await vscode.workspace.findFiles(globFor(spec), excludeGlob());
     for (const uri of found) targets.push({ uri, spec });
   }
 
