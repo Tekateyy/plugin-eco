@@ -1,0 +1,44 @@
+{
+  "name": "plugin-eco",
+  "displayName": "Plugin Eco — Green Coding",
+  "description": "Analyse statique de la consommation énergétique du code Java. Score A–E inspiré du DPE.",
+  "version": "0.1.0",
+  "publisher": "greencoding",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Linters", "Other"],
+  "keywords": ["green coding", "java", "energy", "performance", "éco"],
+  "activationEvents": ["onLanguage:java"],
+  "main": "./out/extension",
+  "contributes": {
+    "commands": [
+      {
+        "command": "greencoding.analyze",
+        "title": "Greencoding: Analyser le fichier"
+      },
+      {
+        "command": "greencoding.showPanel",
+        "title": "Greencoding: Ouvrir le rapport détaillé"
+      },
+      {
+        "command": "greencoding.analyzeWorkspace",
+        "title": "Greencoding: Analyser tout le workspace"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "vscode:prepublish": "npm run compile"
+  },
+  "dependencies": {
+    "web-tree-sitter": "^0.22.6",
+    "tree-sitter-wasms": "^0.1.12"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^20.0.0"
+  }
+}
