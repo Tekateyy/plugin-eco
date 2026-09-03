@@ -340,3 +340,29 @@ describe('la règle SQL ne se déclenche que sur de vraies requêtes', () => {
     assert.deepStrictEqual(messages(f), []);
   });
 });
+
+// --- Robustesse de la règle SQL ------------------------------------------
+
+describe('la règle SQL résiste aux chaînes hostiles', () => {
+  test('une chaîne forgée ne fait pas exploser le temps d\'analyse', () => {
+    // La version combinée du motif était quadratique : une chaîne commençant
+    // par WITH et enchaînant des SELECT sans jamais de FROM la faisait
+    // traîner (63 ms pour 36 Ko, plusieurs secondes au-delà). Une analyse de
+    // CI portant sur une contribution extérieure pouvait donc être bloquée
+    // par un simple littéral.
+    const hostile = 'WITH ' + 'SELECT x '.repeat(40000); // ~350 Ko
+    const code = `export const q = ${JSON.stringify(hostile)};`;
+
+    const t0 = Date.now();
+    analyze(code, 'server');
+    const ms = Date.now() - t0;
+
+    assert.ok(ms < 2000, `analyse trop lente : ${ms} ms`);
+  });
+
+  test('les chaînes hostiles restent correctement classées', () => {
+    // Sans FROM, ce n'est pas une requête, quelle que soit la taille.
+    const f = analyze(`export const q = "${'WITH SELECT x '.repeat(50)}";`, 'server');
+    assert.deepStrictEqual(messages(f), []);
+  });
+});
