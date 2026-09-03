@@ -1,5 +1,6 @@
 .vscode/**
 .claude/**
+.github/**
 CLAUDE.md
 .gitignore
 scripts/**
