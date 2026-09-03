@@ -156,6 +156,20 @@ describe('règle 6 — requête SQL sans LIMIT', () => {
     const findings = analyze(inMethod(`String q = "select * from orders";`));
     assert.strictEqual(findings.filter(f => f.message.includes('LIMIT')).length, 1);
   });
+
+  test("un mot contenant « select » n'est pas une requête", () => {
+    // Un includes('SELECT') naïf produisait 34 fausses alertes sur le seul
+    // compilateur TypeScript, sur des chaînes comme "selection".
+    for (const s of ['selection', 'selectedFile', 'onSelect', 'deselect']) {
+      const findings = analyze(inMethod(`String q = "${s}";`));
+      assert.strictEqual(findings.length, 0, `"${s}" ne devrait rien declencher`);
+    }
+  });
+
+  test("un SELECT sans FROM n'est pas traité comme une requête", () => {
+    const findings = analyze(inMethod(`String q = "SELECT the option";`));
+    assert.strictEqual(findings.length, 0);
+  });
 });
 
 describe('positions des findings', () => {

@@ -15,7 +15,43 @@ export type RuleId =
   | 'object-creation-in-loop'
   | 'regex-compile-in-loop'
   | 'blocking-io-in-loop'
-  | 'sql-without-limit';
+  | 'sql-without-limit'
+  | 'await-in-loop'
+  | 'sync-io-in-function'
+  | 'polling-interval'
+  | 'unthrottled-event-listener'
+  | 'whole-library-import';
+
+/**
+ * Contexte d'exécution dans lequel chaque règle a un sens.
+ *
+ * `'any'` signifie « partout, y compris quand le contexte est indéterminé ».
+ * Une règle restreinte ne se déclenche **pas** sur un fichier `unknown` : sans
+ * certitude, mieux vaut se taire que produire un faux positif.
+ */
+export const RULE_CONTEXTS: Record<RuleId, 'any' | ExecutionContext[]> = {
+  'nested-loops': 'any',
+  'string-concat-in-loop': 'any',
+  'object-creation-in-loop': 'any',
+  'regex-compile-in-loop': 'any',
+  'blocking-io-in-loop': 'any',
+  'sql-without-limit': 'any',
+  // Enchaîner des attentes coûte des allers-retours des deux côtés.
+  'await-in-loop': 'any',
+  // Les API synchrones de Node n'existent que sur un serveur.
+  'sync-io-in-function': ['server'],
+  // Un timer permanent est payé par chaque appareil qui affiche la page.
+  'polling-interval': ['client'],
+  'unthrottled-event-listener': ['client'],
+  // Le poids du bundle est transféré sur le réseau vers chaque visiteur.
+  'whole-library-import': ['client'],
+};
+
+/** La règle s'applique-t-elle à un fichier dont le contexte est celui-ci ? */
+export function ruleAppliesIn(rule: RuleId, context: ExecutionContext): boolean {
+  const allowed = RULE_CONTEXTS[rule];
+  return allowed === 'any' || allowed.includes(context);
+}
 
 /**
  * Noms des nœuds tree-sitter, qui diffèrent d'une grammaire à l'autre.
@@ -29,6 +65,8 @@ export interface NodeNames {
   stringLiteral: string[];
   /** Nœud portant `+=` — un opérateur composé a son propre type de nœud en JS. */
   compoundAssignment: string[];
+  /** Frontières de fonction, qui bornent la portée de certaines règles. */
+  functions: string[];
 }
 
 export interface LanguageSpec {
@@ -59,6 +97,7 @@ const JAVA_NODES: NodeNames = {
   call: ['method_invocation'],
   stringLiteral: ['string_literal'],
   compoundAssignment: ['assignment_expression'],
+  functions: ['method_declaration', 'constructor_declaration', 'lambda_expression'],
 };
 
 // Les grammaires typescript et tsx étendent toutes deux javascript :
@@ -69,6 +108,10 @@ const JS_NODES: NodeNames = {
   call: ['call_expression'],
   stringLiteral: ['string', 'template_string'],
   compoundAssignment: ['augmented_assignment_expression'],
+  functions: [
+    'function_declaration', 'function_expression', 'arrow_function',
+    'method_definition', 'generator_function_declaration',
+  ],
 };
 
 // --- Règles ---------------------------------------------------------------
@@ -88,10 +131,21 @@ const JAVA_RULES: RuleId[] = [
  * `string-concat-in-loop` et `object-creation-in-loop` sont volontairement
  * absentes : V8 représente les concaténations par des ropes et son GC
  * générationnel rend l'allocation à courte durée de vie bon marché. Les porter
- * produirait du bruit sur du code sain. Les règles propres au web
- * (await en boucle, I/O synchrones, polling, imports massifs) viendront ensuite.
+ * produirait du bruit sur du code sain.
+ *
+ * S'y ajoutent les règles propres au web, dont plusieurs ne valent que d'un
+ * côté : voir RULE_CONTEXTS.
  */
-const JS_RULES: RuleId[] = ['nested-loops', 'sql-without-limit'];
+const JS_RULES: RuleId[] = [
+  'nested-loops',
+  'sql-without-limit',
+  'regex-compile-in-loop',
+  'await-in-loop',
+  'sync-io-in-function',
+  'polling-interval',
+  'unthrottled-event-listener',
+  'whole-library-import',
+];
 
 // --- Descripteurs ---------------------------------------------------------
 

@@ -32,23 +32,39 @@ palette (`Ctrl+Shift+P`) :
 
 ## Ce qui est détecté
 
-| Pattern | Sévérité | Pénalité | Langages |
-|---|---|---|---|
-| Boucle imbriquée (complexité ≥ O(n²)) | haute | 15 | tous |
-| Requête SQL sans `LIMIT` | haute | 12 | tous |
-| `Pattern.compile()` en boucle | haute | 12 | Java |
-| I/O bloquant en boucle (`readLine`, `read`, `nextLine`…) | haute | 12 | Java |
-| Concaténation `+=` en boucle | moyenne | 7 | Java |
-| `new` en boucle | moyenne | 7 | Java |
+**Partout**, quel que soit le langage et l'endroit où le code s'exécute :
 
-Les deux dernières règles ne s'appliquent **pas** à JavaScript et TypeScript, et
-c'est délibéré : V8 représente les concaténations par des *ropes*, et son
+| Pattern | Sévérité | Pénalité |
+|---|---|---|
+| Boucle imbriquée (complexité ≥ O(n²)) | haute | 15 |
+| Requête SQL sans `LIMIT` | haute | 12 |
+| `await` dans une boucle (appels enchaînés) | haute | 12 |
+| Regex recompilée en boucle | haute | 12 |
+
+**Côté serveur** — le coût est payé une fois, par le processus :
+
+| Pattern | Sévérité | Pénalité |
+|---|---|---|
+| I/O synchrone dans une fonction (`readFileSync`, `execSync`…) | haute | 12 |
+| I/O bloquant en boucle *(Java)* | haute | 12 |
+
+**Côté navigateur** — le coût est payé par l'appareil de chaque visiteur :
+
+| Pattern | Sévérité | Pénalité |
+|---|---|---|
+| `setInterval` de moins d'une seconde | haute | 12 |
+| `setInterval` plus espacé | moyenne | 7 |
+| Gestionnaire `scroll`/`resize`/`mousemove` sans limitation de débit | moyenne | 7 |
+| Import global d'une bibliothèque lourde (`lodash`, `moment`…) | moyenne | 7 |
+
+**Java seulement** : concaténation `+=` en boucle et `new` en boucle (moyenne, 7
+chacune). Ces deux règles ne s'appliquent **pas** à JavaScript, et c'est
+délibéré : V8 représente les concaténations par des *ropes*, et son
 ramasse-miettes générationnel rend l'allocation à courte durée de vie bon
 marché. Les signaler reviendrait à crier au loup sur du code sain.
 
-Les règles propres au web — `await` en boucle, I/O synchrones côté serveur,
-*polling*, handlers non *debouncés*, imports de bibliothèques entières —
-restent à écrire.
+Une règle restreinte à un côté ne se déclenche **jamais** sur un fichier dont le
+contexte est indéterminé : sans certitude, le plugin se tait.
 
 Le score part de 100, chaque détection retranche sa pénalité, et le reste donne
 la lettre : **A** ≥ 90, **B** ≥ 75, **C** ≥ 55, **D** ≥ 35, **E** en dessous.
@@ -60,10 +76,10 @@ npm install
 npm test
 ```
 
-Puis `F5` dans VSCode pour lancer une fenêtre de test, et ouvrir
-`samples/Example.java` — il déclenche les six règles — ou `samples/example.ts`,
-qui montre ce qui s'applique à TypeScript et ce qui n'est volontairement pas
-signalé.
+Puis `F5` dans VSCode pour lancer une fenêtre de test, et ouvrir un des exemples
+de `samples/` : `Example.java` déclenche les six règles Java, `example.ts` montre
+ce qui s'applique hors contexte connu, `example-web.tsx` déclenche les règles
+navigateur.
 
 Les tests utilisent `node:test`, sans dépendance supplémentaire, et s'exécutent
 sur le code compilé — donc sur ce qui part réellement dans l'extension. Ils
@@ -120,10 +136,9 @@ installée n'a pas les `node_modules` de développement sous la main : le script
 
 ## État
 
-Analyse statique de Java, JavaScript et TypeScript. Pour JS/TS, seules les deux
-règles indépendantes du langage sont actives à ce stade : le jeu de règles
-propre au web est la prochaine étape, suivi de Python, de la mesure à
-l'exécution (Wh et CO₂) et d'un portage IntelliJ.
+Analyse statique de Java, JavaScript et TypeScript, avec un jeu de règles web
+qui distingue le code serveur du code navigateur. Python, la mesure à
+l'exécution (Wh et CO₂) et un portage IntelliJ sont les étapes suivantes.
 
 ## Licence
 

@@ -134,7 +134,8 @@ function analyzeDocument(document: vscode.TextDocument): void {
 
   try {
     const tree = parse(document.getText(), document.languageId);
-    const findings = collectFindings(tree.rootNode, spec);
+    const { context, clientSignals, serverSignals } = inferContext(tree.rootNode, spec);
+    const findings = collectFindings(tree.rootNode, spec, context);
     const score = computeScore(findings);
 
     // Un arbre incomplet donne une analyse incomplète : sans ce signal, un
@@ -142,8 +143,6 @@ function analyzeDocument(document: vscode.TextDocument): void {
     // résultat. Fréquent pendant la frappe, d'où un simple avertissement
     // plutôt qu'un blocage.
     const partial = tree.rootNode.hasError;
-
-    const { context, clientSignals, serverSignals } = inferContext(tree.rootNode, spec);
 
     lastFindings = findings;
     lastScore = score;
