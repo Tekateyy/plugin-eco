@@ -1,0 +1,23 @@
+# Ce que npm publie est gouverné ici ; le .vsix l'est par .vscodeignore.
+# vsce refuse de combiner .vscodeignore et le champ "files" du manifeste,
+# d'où deux fichiers plutôt qu'une liste blanche unique.
+#
+# Un test (test/package.test.js) vérifie le contenu réel du paquet npm :
+# c'est lui la garantie, cette liste n'en est que le moyen.
+
+src/
+test/
+samples/
+scripts/
+.github/
+.vscode/
+.claude/
+CLAUDE.md
+.vscodeignore
+.npmignore
+tsconfig.json
+*.vsix
+*.tgz
+
+# Les cartes de source exposent l'arborescence interne sans servir au CLI.
+out/**/*.map

@@ -47,6 +47,7 @@
     "watch": "npm run copy-wasm && tsc -watch -p ./",
     "test": "npm run compile && node --test",
     "package": "npx @vscode/vsce package",
+    "prepublishOnly": "npm run compile && npm test",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {

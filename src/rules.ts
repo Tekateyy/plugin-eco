@@ -43,17 +43,31 @@ const THROTTLE_PATTERN = /debounce|throttle|raf|requestAnimationFrame/i;
 /**
  * Une vraie requête, pas une chaîne qui contient les mots.
  *
- * Deux faux positifs successifs ont façonné ce motif :
+ * Deux faux positifs successifs ont façonné ces critères :
  *  - `includes('SELECT')` classait `"selection"` et `"onSelect"` comme des
  *    requêtes — 34 alertes sur le seul compilateur TypeScript ;
  *  - exiger seulement `SELECT` puis `FROM` en délimiteurs de mot ne suffisait
  *    pas non plus : un bloc CSS-in-JS contenant `input, select, textarea {…}`
  *    et `@keyframes spin { from {…} }` déclenchait la règle.
  *
- * Une requête *commence* par `SELECT`, éventuellement précédé d'un `WITH`.
- * L'ancrage en tête supprime les deux cas sans perdre les requêtes réelles.
+ * Une requête *commence* par `SELECT`, éventuellement précédé d'un `WITH`, et
+ * contient les deux mots-clés.
+ *
+ * **Trois motifs sans quantificateur imbriqué plutôt qu'un seul.** La version
+ * combinée `/^\s*(WITH\b[\s\S]*?)?SELECT\b[\s\S]*\bFROM\b/` était quadratique :
+ * sur une chaîne commençant par `WITH` et enchaînant des `SELECT` sans jamais
+ * de `FROM`, le temps quadruplait à chaque doublement de taille — 63 ms pour
+ * 36 Ko, plusieurs secondes pour quelques centaines de Ko. Un littéral forgé
+ * suffisait à faire traîner une analyse, ce qui compte quand la CI examine le
+ * code d'une contribution extérieure. Chacun de ces trois motifs est linéaire.
  */
-const SELECT_FROM = /^\s*(WITH\b[\s\S]*?)?SELECT\b[\s\S]*\bFROM\b/;
+const SQL_STARTS = /^\s*(SELECT|WITH)\b/;
+const HAS_SELECT = /\bSELECT\b/;
+const HAS_FROM = /\bFROM\b/;
+
+function looksLikeQuery(upper: string): boolean {
+  return SQL_STARTS.test(upper) && HAS_SELECT.test(upper) && HAS_FROM.test(upper);
+}
 
 /**
  * Parcourt l'AST et collecte les findings énergivores applicables au langage.
@@ -214,7 +228,7 @@ function traverse(
   if (ctx.active('sql-without-limit') && ctx.nodes.stringLiteral.includes(node.type)) {
     // Sans retirer les guillemets, l'ancrage en tête ne peut pas s'appliquer.
     const upper = unquote(node.text).toUpperCase();
-    if (SELECT_FROM.test(upper) && !upper.includes('LIMIT') && !upper.includes('ROWNUM')) {
+    if (looksLikeQuery(upper) && !upper.includes('LIMIT') && !upper.includes('ROWNUM')) {
       findings.push({
         startLine: node.startPosition.row,
         startChar: node.startPosition.column,
