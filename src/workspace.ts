@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseWith } from './parser';
 import { collectFindings } from './rules';
-import { computeScore, letterFor } from './scoring';
+import { computeScore, aggregateScore } from './scoring';
 import { LANGUAGES, LanguageSpec } from './languages';
 import { inferContext } from './context';
 import { FileResult, WorkspaceReport, Score } from './types';
@@ -92,23 +92,7 @@ export async function analyzeWorkspace(
 
   if (results.length === 0) return null;
 
-  // Score global = moyenne arrondie des scores fichiers
-  const avgValue = Math.round(
-    results.reduce((sum, r) => sum + r.score.value, 0) / results.length
-  );
-  const globalCount = results.reduce(
-    (acc, r) => ({
-      high:   acc.high   + r.score.findingCount.high,
-      medium: acc.medium + r.score.findingCount.medium,
-      low:    acc.low    + r.score.findingCount.low,
-    }),
-    { high: 0, medium: 0, low: 0 }
-  );
-  const global: Score = {
-    letter: letterFor(avgValue),
-    value: avgValue,
-    findingCount: globalCount,
-  };
+  const global = aggregateScore(results.map(r => r.score));
 
   // Trier : pires fichiers en premier
   results.sort((a, b) => a.score.value - b.score.value);
@@ -116,6 +100,7 @@ export async function analyzeWorkspace(
   return {
     files: results,
     global,
+    filesWithFindings: results.filter(r => r.findings.length > 0).length,
     scannedAt: new Date().toLocaleString('fr-CA'),
   };
 }

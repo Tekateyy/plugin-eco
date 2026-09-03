@@ -40,6 +40,9 @@ export interface FileResult {
 /** Rapport global d'un scan workspace. */
 export interface WorkspaceReport {
   files: FileResult[];
+  /** Moyenne des seuls fichiers présentant au moins une alerte. */
   global: Score;
+  /** Étendue : combien de fichiers sont concernés, sur combien d'analysés. */
+  filesWithFindings: number;
   scannedAt: string;  // Date/heure lisible
 }
