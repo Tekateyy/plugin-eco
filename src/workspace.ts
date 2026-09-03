@@ -4,6 +4,7 @@ import { parseWith } from './parser';
 import { collectFindings } from './rules';
 import { computeScore, letterFor } from './scoring';
 import { LANGUAGES, LanguageSpec } from './languages';
+import { inferContext } from './context';
 import { FileResult, WorkspaceReport, Score } from './types';
 
 const EXCLUDE = '**/{node_modules,target,build,dist,bin,out,.git,.gradle,.idea,.next,coverage}/**';
@@ -60,7 +61,8 @@ export async function analyzeWorkspace(
         const bytes = await vscode.workspace.fs.readFile(uri);
         const code = Buffer.from(bytes).toString('utf-8');
         const tree = parseWith(code, spec);
-        const findings = collectFindings(tree.rootNode, spec);
+        const { context } = inferContext(tree.rootNode, spec);
+        const findings = collectFindings(tree.rootNode, spec, context);
         const score = computeScore(findings);
 
         // Poser les diagnostics inline pour ce fichier
