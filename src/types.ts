@@ -1,6 +1,16 @@
 /** Sévérité d'un pattern énergivore détecté. */
 export type Severity = 'high' | 'medium' | 'low';
 
+/**
+ * Où s'exécute le code analysé.
+ *
+ * L'enjeu énergétique n'est pas le même : un `setInterval` de polling coûte une
+ * fois sur un serveur, et autant de fois qu'il y a d'utilisateurs sur le client.
+ * `unknown` est un état légitime, pas un échec — en rendu côté serveur, un même
+ * fichier tourne réellement des deux côtés.
+ */
+export type ExecutionContext = 'client' | 'server' | 'unknown';
+
 /** Un pattern énergivore détecté dans le code, avec sa position et son poids de pénalité. */
 export interface Finding {
   startLine: number;  // 0-indexed (row dans tree-sitter)

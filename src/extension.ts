@@ -5,7 +5,8 @@ import { computeScore, scoreSummary } from './scoring';
 import { buildWebviewHtml, buildWorkspaceHtml } from './webview';
 import { analyzeWorkspace } from './workspace';
 import { isSupported, specFor } from './languages';
-import { Finding, Score } from './types';
+import { inferContext } from './context';
+import { ExecutionContext, Finding, Score } from './types';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let statusBarItem: vscode.StatusBarItem;
@@ -142,6 +143,8 @@ function analyzeDocument(document: vscode.TextDocument): void {
     // plutôt qu'un blocage.
     const partial = tree.rootNode.hasError;
 
+    const { context, clientSignals, serverSignals } = inferContext(tree.rootNode, spec);
+
     lastFindings = findings;
     lastScore = score;
     lastFileName = document.fileName;
@@ -162,6 +165,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
     statusBarItem.tooltip = [
       `${spec.label} — score : ${score.value}/100 — ${scoreSummary(score)}`,
       `Alertes : ${score.findingCount.high} haute(s), ${score.findingCount.medium} moyenne(s)`,
+      `Exécution : ${contextLabel(context)}${contextEvidence(clientSignals, serverSignals)}`,
       ...(partial
         ? ['', '⚠ Analyse partielle : le fichier n\'a pas pu être parsé entièrement.',
            'Le score est à prendre avec réserve.']
@@ -238,6 +242,24 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
 // ---------------------------------------------------------------------------
 // Utilitaire
 // ---------------------------------------------------------------------------
+
+const CONTEXT_LABELS: Record<ExecutionContext, string> = {
+  client: 'navigateur — le coût est payé par chaque visiteur',
+  server: 'serveur',
+  unknown: 'indéterminée',
+};
+
+function contextLabel(context: ExecutionContext): string {
+  return CONTEXT_LABELS[context];
+}
+
+/** Indices ayant conduit au verdict, tronqués pour rester lisibles. */
+function contextEvidence(clientSignals: string[], serverSignals: string[]): string {
+  const all = [...serverSignals, ...clientSignals];
+  if (all.length === 0) return '';
+  const shown = all.slice(0, 4).join(', ');
+  return ` (${shown}${all.length > 4 ? '…' : ''})`;
+}
 
 function getNonce(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
