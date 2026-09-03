@@ -4,6 +4,11 @@
   "description": "Analyse statique de la consommation énergétique du code Java. Score A–E inspiré du DPE.",
   "version": "0.1.0",
   "publisher": "greencoding",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Tekateyy/plugin-eco.git"
+  },
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -28,17 +33,19 @@
     ]
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
+    "copy-wasm": "node scripts/copy-wasm.js",
+    "compile": "tsc -p ./ && npm run copy-wasm",
+    "watch": "npm run copy-wasm && tsc -watch -p ./",
+    "package": "npx @vscode/vsce package",
     "vscode:prepublish": "npm run compile"
   },
   "dependencies": {
-    "web-tree-sitter": "^0.22.6",
-    "tree-sitter-wasms": "^0.1.12"
+    "web-tree-sitter": "^0.22.6"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
     "@types/vscode": "^1.80.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "tree-sitter-wasms": "^0.1.12"
   }
 }

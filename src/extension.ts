@@ -27,7 +27,7 @@ let lastFileName = '';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   try {
-    await initParser();
+    await initParser(context.extensionUri.fsPath);
   } catch (err) {
     vscode.window.showErrorMessage(`Plugin Eco : erreur d'initialisation — ${err}`);
     return;

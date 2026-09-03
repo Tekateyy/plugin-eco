@@ -7,23 +7,25 @@ let _parser: Parser | null = null;
 /**
  * Initialise web-tree-sitter avec la grammaire Java (WASM).
  * Doit être appelé une seule fois dans activate().
+ *
+ * Les .wasm sont lus dans out/wasm/, où le script de build les a copiés :
+ * node_modules n'est pas présent dans un .vsix installé.
+ *
+ * @param extensionPath racine de l'extension (context.extensionUri.fsPath)
  */
-export async function initParser(): Promise<void> {
+export async function initParser(extensionPath: string): Promise<void> {
   if (_parser) return; // déjà initialisé
 
-  // Localiser le tree-sitter.wasm runtime dans web-tree-sitter
+  const wasmDir = path.join(extensionPath, 'out', 'wasm');
+
+  // Le runtime emscripten réclame tree-sitter.wasm par son nom de fichier
   await Parser.init({
     locateFile(scriptName: string): string {
-      return path.join(
-        path.dirname(require.resolve('web-tree-sitter')),
-        scriptName
-      );
+      return path.join(wasmDir, scriptName);
     }
   });
 
-  // Charger la grammaire Java pré-compilée en WASM depuis tree-sitter-wasms
-  const javaWasmPath = require.resolve('tree-sitter-wasms/out/tree-sitter-java.wasm');
-  const javaWasmBuffer = fs.readFileSync(javaWasmPath);
+  const javaWasmBuffer = fs.readFileSync(path.join(wasmDir, 'tree-sitter-java.wasm'));
   const Java = await Parser.Language.load(javaWasmBuffer);
 
   _parser = new Parser();

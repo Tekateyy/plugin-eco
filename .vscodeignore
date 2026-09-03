@@ -1,0 +1,13 @@
+.vscode/**
+.claude/**
+CLAUDE.md
+.gitignore
+scripts/**
+samples/**
+src/**
+tsconfig.json
+out/**/*.map
+
+# tree-sitter-wasms est une devDependency : seul tree-sitter-java.wasm
+# est repris dans out/wasm/ au build.
+node_modules/tree-sitter-wasms/**
