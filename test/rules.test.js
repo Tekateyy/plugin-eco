@@ -4,11 +4,12 @@ const path = require('node:path');
 
 const { initParser, parse } = require('../out/parser');
 const { collectFindings } = require('../out/rules');
+const { specFor } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
 
 /** Analyse un extrait Java et retourne ses findings. */
-const analyze = (code) => collectFindings(parse(code).rootNode);
+const analyze = (code) => collectFindings(parse(code, 'java').rootNode, specFor('java'));
 
 /** Enveloppe un corps de méthode dans une classe compilable. */
 const inMethod = (body) => `class T {\n  void m() throws Exception {\n${body}\n  }\n}`;

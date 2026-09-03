@@ -11,5 +11,8 @@
     "resolveJsonModule": true,
     "skipLibCheck": true
   },
+  // Borné à src/ : samples/ contient un exemple .ts qui est une donnée de test,
+  // pas une source à compiler.
+  "include": ["src"],
   "exclude": ["node_modules", "out", ".vscode-test"]
 }

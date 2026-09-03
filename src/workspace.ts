@@ -1,13 +1,17 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { parse } from './parser';
+import { parseWith } from './parser';
 import { collectFindings } from './rules';
 import { computeScore, letterFor } from './scoring';
+import { LANGUAGES, LanguageSpec } from './languages';
 import { FileResult, WorkspaceReport, Score } from './types';
 
+const EXCLUDE = '**/{node_modules,target,build,dist,bin,out,.git,.gradle,.idea,.next,coverage}/**';
+
 /**
- * Scanne tous les fichiers Java du workspace, calcule un score par fichier,
- * et retourne un rapport global (score moyen + liste triée par score croissant).
+ * Scanne tous les fichiers analysables du workspace, calcule un score par
+ * fichier, et retourne un rapport global (score moyen + liste triée par score
+ * croissant).
  *
  * Les diagnostics de chaque fichier sont posés dans la collection partagée.
  */
@@ -15,13 +19,19 @@ export async function analyzeWorkspace(
   diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<WorkspaceReport | null> {
 
-  const javaFiles = await vscode.workspace.findFiles(
-    '**/*.java',
-    '**/{node_modules,target,build,bin,out,.git,.gradle,.idea}/**'
-  );
+  // Un passage par langage : chaque fichier garde le descripteur qui le décrit,
+  // faute de quoi on ne saurait plus quelle grammaire lui appliquer.
+  const targets: { uri: vscode.Uri; spec: LanguageSpec }[] = [];
+  for (const spec of LANGUAGES) {
+    const found = await vscode.workspace.findFiles(spec.glob, EXCLUDE);
+    for (const uri of found) targets.push({ uri, spec });
+  }
 
-  if (javaFiles.length === 0) {
-    vscode.window.showInformationMessage('Plugin Eco : aucun fichier .java trouvé dans le workspace.');
+  if (targets.length === 0) {
+    vscode.window.showInformationMessage(
+      'Plugin Eco : aucun fichier analysable trouvé dans le workspace ' +
+      `(${LANGUAGES.map(l => l.label).join(', ')}).`
+    );
     return null;
   }
 
@@ -33,12 +43,12 @@ export async function analyzeWorkspace(
     cancellable: true,
   }, async (progress, token) => {
 
-    const total = javaFiles.length;
+    const total = targets.length;
 
     for (let i = 0; i < total; i++) {
       if (token.isCancellationRequested) break;
 
-      const uri = javaFiles[i];
+      const { uri, spec } = targets[i];
       const baseName = path.basename(uri.fsPath);
 
       progress.report({
@@ -49,8 +59,8 @@ export async function analyzeWorkspace(
       try {
         const bytes = await vscode.workspace.fs.readFile(uri);
         const code = Buffer.from(bytes).toString('utf-8');
-        const tree = parse(code);
-        const findings = collectFindings(tree.rootNode);
+        const tree = parseWith(code, spec);
+        const findings = collectFindings(tree.rootNode, spec);
         const score = computeScore(findings);
 
         // Poser les diagnostics inline pour ce fichier

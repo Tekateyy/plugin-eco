@@ -4,6 +4,7 @@ import { collectFindings } from './rules';
 import { computeScore, scoreSummary } from './scoring';
 import { buildWebviewHtml, buildWorkspaceHtml } from './webview';
 import { analyzeWorkspace } from './workspace';
+import { isSupported, specFor } from './languages';
 import { Finding, Score } from './types';
 
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -44,7 +45,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push(
     vscode.commands.registerCommand('greencoding.analyze', () => {
       const doc = vscode.window.activeTextEditor?.document;
-      if (doc?.languageId === 'java') analyzeDocument(doc);
+      if (doc && isSupported(doc.languageId)) analyzeDocument(doc);
     })
   );
 
@@ -74,17 +75,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Événements document
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(doc => {
-      if (doc.languageId === 'java') analyzeDocument(doc);
+      if (isSupported(doc.languageId)) analyzeDocument(doc);
     }),
     vscode.workspace.onDidSaveTextDocument(doc => {
-      if (doc.languageId === 'java') analyzeDocument(doc);
+      if (isSupported(doc.languageId)) analyzeDocument(doc);
     }),
     vscode.workspace.onDidChangeTextDocument(event => {
-      if (event.document.languageId !== 'java') return;
+      if (!isSupported(event.document.languageId)) return;
       scheduleAnalysis(event.document);
     }),
     vscode.window.onDidChangeActiveTextEditor(editor => {
-      if (editor?.document.languageId === 'java') {
+      if (editor && isSupported(editor.document.languageId)) {
         analyzeDocument(editor.document);
       } else {
         statusBarItem.hide();
@@ -100,7 +101,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Analyser le fichier actif au démarrage
   const activeDoc = vscode.window.activeTextEditor?.document;
-  if (activeDoc?.languageId === 'java') analyzeDocument(activeDoc);
+  if (activeDoc && isSupported(activeDoc.languageId)) analyzeDocument(activeDoc);
 }
 
 export function deactivate(): void {
@@ -127,10 +128,19 @@ function scheduleAnalysis(document: vscode.TextDocument): void {
 }
 
 function analyzeDocument(document: vscode.TextDocument): void {
+  const spec = specFor(document.languageId);
+  if (!spec) return;
+
   try {
-    const tree = parse(document.getText());
-    const findings = collectFindings(tree.rootNode);
+    const tree = parse(document.getText(), document.languageId);
+    const findings = collectFindings(tree.rootNode, spec);
     const score = computeScore(findings);
+
+    // Un arbre incomplet donne une analyse incomplète : sans ce signal, un
+    // fichier illisible sortirait en A 100/100, ce qui est pire qu'aucun
+    // résultat. Fréquent pendant la frappe, d'où un simple avertissement
+    // plutôt qu'un blocage.
+    const partial = tree.rootNode.hasError;
 
     lastFindings = findings;
     lastScore = score;
@@ -148,10 +158,14 @@ function analyzeDocument(document: vscode.TextDocument): void {
     }));
 
     // Barre de statut
-    statusBarItem.text = `⚡ Éco: ${score.letter}`;
+    statusBarItem.text = `⚡ Éco: ${score.letter}${partial ? ' ⚠' : ''}`;
     statusBarItem.tooltip = [
-      `Score : ${score.value}/100 — ${scoreSummary(score)}`,
+      `${spec.label} — score : ${score.value}/100 — ${scoreSummary(score)}`,
       `Alertes : ${score.findingCount.high} haute(s), ${score.findingCount.medium} moyenne(s)`,
+      ...(partial
+        ? ['', '⚠ Analyse partielle : le fichier n\'a pas pu être parsé entièrement.',
+           'Le score est à prendre avec réserve.']
+        : []),
       '',
       'Cliquer pour ouvrir le rapport détaillé',
     ].join('\n');
