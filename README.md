@@ -99,6 +99,34 @@ Pour produire l'extension installable :
 npm run package
 ```
 
+## En intégration continue
+
+Le même moteur s'utilise en ligne de commande, pour bloquer une pipeline sous un
+seuil :
+
+```bash
+npx plugin-eco --min C src/
+```
+
+| | |
+|---|---|
+| `--format <text\|json>` | sortie lisible ou exploitable par un script |
+| `--min <A..E>` | note minimale acceptée |
+| code de sortie | `0` conforme · `1` sous le seuil · `2` erreur d'utilisation |
+
+Les positions sont rendues au format `fichier:ligne:colonne`, reconnu par la
+plupart des annotateurs de CI et cliquable dans un terminal.
+
+```yaml
+- name: Green check
+  run: npx plugin-eco --min C src/
+```
+
+L'analyse est strictement la même que dans l'éditeur : le CLI et l'extension
+partagent le parseur, les règles, l'inférence de contexte et le calcul de score.
+Un verdict qui différerait entre l'IDE et la pipeline ruinerait la confiance dans
+les deux.
+
 ## Choix techniques
 
 **Analyse statique d'abord, mesure à l'exécution ensuite.** Un profileur donne
