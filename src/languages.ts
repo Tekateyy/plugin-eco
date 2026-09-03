@@ -1,3 +1,5 @@
+import { ExecutionContext } from './types';
+
 /**
  * Descripteurs de langage.
  *
@@ -41,6 +43,12 @@ export interface LanguageSpec {
   nodes: NodeNames;
   /** Règles applicables. Une règle absente n'est jamais évaluée. */
   rules: RuleId[];
+  /**
+   * Contexte d'exécution connu d'avance, qui dispense de l'inférence.
+   * Java n'a pas de moitié navigateur : c'est du serveur par construction.
+   * Absent pour JS/TS, où le contexte se déduit du code.
+   */
+  fixedContext?: ExecutionContext;
 }
 
 // --- Noms de nœuds --------------------------------------------------------
@@ -95,6 +103,7 @@ export const LANGUAGES: LanguageSpec[] = [
     glob: '**/*.java',
     nodes: JAVA_NODES,
     rules: JAVA_RULES,
+    fixedContext: 'server',
   },
   {
     // tsx couvre .js et .jsx : c'est un sur-ensemble de la grammaire javascript,
