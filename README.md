@@ -86,3 +86,7 @@ installée n'a pas les `node_modules` de développement sous la main : le script
 
 Java uniquement, analyse statique. Python et Node.js, la mesure à l'exécution
 (Wh et CO₂) et un portage IntelliJ sont les étapes suivantes.
+
+## Licence
+
+MIT — voir [LICENSE](LICENSE).
