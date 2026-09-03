@@ -36,6 +36,7 @@
     "copy-wasm": "node scripts/copy-wasm.js",
     "compile": "tsc -p ./ && npm run copy-wasm",
     "watch": "npm run copy-wasm && tsc -watch -p ./",
+    "test": "npm run compile && node --test",
     "package": "npx @vscode/vsce package",
     "vscode:prepublish": "npm run compile"
   },
