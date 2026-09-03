@@ -22,6 +22,7 @@ const debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let lastFindings: Finding[] = [];
 let lastScore: Score = { letter: 'A', value: 100, findingCount: { high: 0, medium: 0, low: 0 } };
 let lastFileName = '';
+let lastPartial = false;
 
 // ---------------------------------------------------------------------------
 // Point d'entrée
@@ -147,6 +148,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
     lastFindings = findings;
     lastScore = score;
     lastFileName = document.fileName;
+    lastPartial = partial;
 
     // Diagnostics inline
     diagnosticCollection.set(document.uri, findings.map(f => {
@@ -181,7 +183,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
     // Mettre à jour le panneau uniquement si on est en mode fichier
     if (panel && panelMode === 'file') {
       panel.title = '⚡ Rapport Éco';
-      panel.webview.html = buildWebviewHtml(findings, score, document.fileName, getNonce());
+      panel.webview.html = buildWebviewHtml(findings, score, document.fileName, getNonce(), partial);
     }
   } catch {
     // Silencieux (fichier incomplet en cours de frappe)
@@ -198,7 +200,7 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
     // Rafraîchir si on repasse en mode fichier
     if (panelMode === 'file') {
       panel.title = '⚡ Rapport Éco';
-      panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce());
+      panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce(), lastPartial);
     }
     return;
   }
@@ -213,7 +215,7 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
     }
   );
 
-  panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce());
+  panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce(), lastPartial);
 
   // Handler : clic sur un fichier dans le rapport workspace → ouvrir dans l'éditeur
   panel.webview.onDidReceiveMessage(async (message) => {

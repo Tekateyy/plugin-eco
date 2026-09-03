@@ -102,11 +102,19 @@ export function buildWebviewHtml(
   findings: Finding[],
   score: Score,
   fileName: string,
-  nonce: string
+  nonce: string,
+  partial = false
 ): string {
   const color = DPE_COLORS[score.letter];
   const total = findings.length;
   const { high, medium } = score.findingCount;
+
+  const partialBlock = partial
+    ? `<div class="worst" style="border-left-color:#F7A329">
+         ⚠ Analyse partielle : le fichier n'a pas pu être parsé entièrement.
+         Le score est à prendre avec réserve.
+       </div>`
+    : '';
 
   const sorted = [...findings].sort((a, b) => {
     const order = { high: 0, medium: 1, low: 2 };
@@ -135,6 +143,7 @@ export function buildWebviewHtml(
         ? 'Aucune alerte.'
         : `${total} alerte${total > 1 ? 's' : ''} : ${high} haute${high > 1 ? 's' : ''}, ${medium} moyenne${medium > 1 ? 's' : ''}`
     }</div>
+    ${partialBlock}
 
     <h2>Détail des alertes</h2>
     <table>
