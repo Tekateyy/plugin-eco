@@ -305,3 +305,38 @@ describe('applicabilité par contexte', () => {
     }
   });
 });
+
+// --- Faux positifs de la règle SQL ---------------------------------------
+
+describe('la règle SQL ne se déclenche que sur de vraies requêtes', () => {
+  test('un bloc CSS-in-JS ne doit rien déclencher', () => {
+    // Trouvé sur baby-tracker : `input, select, textarea {…}` fournissait le
+    // SELECT et `@keyframes spin { from {…} }` le FROM, dans une balise <style>.
+    const f = analyze(
+      'export const S = () => <style>{`\n' +
+      '  input, select, textarea { font-family: inherit; }\n' +
+      '  .x { user-select: none; }\n' +
+      '  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }\n' +
+      '`}</style>;',
+      'client', 'typescriptreact');
+    assert.deepStrictEqual(messages(f), []);
+  });
+
+  test('une requête dans un gabarit multiligne reste détectée', () => {
+    const f = matching(analyze(
+      'export const q = `\n  SELECT id, total\n  FROM orders\n`;', 'server'), 'LIMIT');
+    assert.strictEqual(f.length, 1);
+  });
+
+  test('une requête précédée d\'un WITH aussi', () => {
+    const f = matching(analyze(
+      `export const q = "WITH recent AS (SELECT 1) SELECT * FROM recent";`, 'server'), 'LIMIT');
+    assert.strictEqual(f.length, 1);
+  });
+
+  test('un SELECT au milieu d\'une phrase ne compte pas', () => {
+    const f = analyze(
+      `export const msg = "Veuillez SELECT une option FROM la liste";`, 'server');
+    assert.deepStrictEqual(messages(f), []);
+  });
+});
