@@ -54,7 +54,12 @@ function sharedStyles(): string {
     box-shadow: 0 2px 8px rgba(0,0,0,0.35);
   }
   .score-line { font-size: 0.9em; margin-bottom: 6px; font-weight: 600; }
-  .summary { font-size: 0.85em; opacity: 0.6; margin-bottom: 24px; }
+  .summary { font-size: 0.85em; opacity: 0.6; margin-bottom: 16px; }
+  .worst {
+    font-size: 0.9em; margin-bottom: 24px; padding: 8px 12px;
+    border-left: 3px solid var(--vscode-textLink-foreground);
+    background: var(--vscode-textBlockQuote-background);
+  }
   h2 {
     font-size: 0.95em; margin: 0 0 10px;
     border-bottom: 1px solid var(--vscode-panel-border, #444);
@@ -145,10 +150,25 @@ export function buildWebviewHtml(
 
 /** Génère le HTML du panneau workspace avec lignes cliquables (requiert enableScripts). */
 export function buildWorkspaceHtml(report: WorkspaceReport, nonce: string): string {
-  const { global, files, scannedAt } = report;
+  const { global, files, scannedAt, filesWithFindings } = report;
   const color = DPE_COLORS[global.letter];
   const totalFiles = files.length;
   const { high, medium } = global.findingCount;
+
+  // Le pire fichier est mis en avant : c'est lui qu'il faut regarder d'abord,
+  // et une lettre unique ne peut pas le désigner.
+  const worst = files.reduce(
+    (a, b) => (b.score.value < a.score.value ? b : a),
+    files[0]
+  );
+  const worstBlock = worst && worst.findings.length > 0
+    ? `<div class="worst">
+         À regarder en premier :
+         <span class="letter-badge" style="background:${DPE_COLORS[worst.score.letter].bg};color:${DPE_COLORS[worst.score.letter].fg}">${worst.score.letter}</span>
+         <strong>${esc(worst.fileName)}</strong>
+         <span style="opacity:0.6">— ${worst.findings.length} alerte${worst.findings.length > 1 ? 's' : ''}</span>
+       </div>`
+    : '';
 
   const rows = files.map(f => {
     const c = DPE_COLORS[f.score.letter];
@@ -188,8 +208,12 @@ export function buildWorkspaceHtml(report: WorkspaceReport, nonce: string): stri
     <div class="subtitle">Analysé le ${esc(scannedAt)} · ${totalFiles} fichier${totalFiles > 1 ? 's' : ''}</div>
 
     <div class="dpe-strip">${dpeStrip(global.letter)}</div>
-    <div class="score-line" style="color:${color.bg}">${global.value}/100 (moyenne) — ${scoreSummary(global)}</div>
-    <div class="summary">${high + medium} alerte${(high + medium) > 1 ? 's' : ''} au total : ${high} haute${high > 1 ? 's' : ''}, ${medium} moyenne${medium > 1 ? 's' : ''}</div>
+    <div class="score-line" style="color:${color.bg}">${global.value}/100 — ${scoreSummary(global)}</div>
+    <div class="summary">
+      ${high + medium} alerte${(high + medium) > 1 ? 's' : ''} au total : ${high} haute${high > 1 ? 's' : ''}, ${medium} moyenne${medium > 1 ? 's' : ''}<br>
+      <span style="opacity:0.75">Moyenne des ${filesWithFindings} fichier${filesWithFindings > 1 ? 's' : ''} concerné${filesWithFindings > 1 ? 's' : ''} sur ${totalFiles} analysé${totalFiles > 1 ? 's' : ''} — les fichiers sans alerte ne comptent pas dans la note.</span>
+    </div>
+    ${worstBlock}
 
     <h2>Fichiers — pires en premier</h2>
     <table>

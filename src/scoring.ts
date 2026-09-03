@@ -30,6 +30,43 @@ export function computeScore(findings: Finding[]): Score {
   return { letter: letterFor(value), value, findingCount: count };
 }
 
+/**
+ * Score global d'un ensemble de fichiers.
+ *
+ * **Les fichiers sans aucune alerte sont exclus du calcul.** Une moyenne sur
+ * tous les fichiers diluait tout : baby-tracker sortait en A 99/100 alors que
+ * son unique fichier volumineux était en C 72, noyé par 22 modules utilitaires
+ * sans le moindre finding. Le score annonçait surtout combien le projet compte
+ * de petits fichiers anodins.
+ *
+ * Restreindre la moyenne aux fichiers réellement concernés répond à la question
+ * utile — « à quel point ce qui pose problème pose problème » — et empêche
+ * d'améliorer sa note en ajoutant du code sain.
+ *
+ * Le compte d'alertes, lui, reste calculé sur l'ensemble : c'est la mesure de
+ * l'étendue, que le panneau affiche à côté de la lettre.
+ */
+export function aggregateScore(scores: Score[]): Score {
+  const total = scores.reduce(
+    (acc, s) => ({
+      high: acc.high + s.findingCount.high,
+      medium: acc.medium + s.findingCount.medium,
+      low: acc.low + s.findingCount.low,
+    }),
+    { high: 0, medium: 0, low: 0 }
+  );
+
+  const concerned = scores.filter(
+    s => s.findingCount.high + s.findingCount.medium + s.findingCount.low > 0
+  );
+
+  const value = concerned.length === 0
+    ? 100
+    : Math.round(concerned.reduce((sum, s) => sum + s.value, 0) / concerned.length);
+
+  return { letter: letterFor(value), value, findingCount: total };
+}
+
 /** Étiquette textuelle du score pour les tooltips et le rapport. */
 export function scoreSummary(score: Score): string {
   const labels: Record<Score['letter'], string> = {

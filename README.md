@@ -69,6 +69,13 @@ contexte est indéterminé : sans certitude, le plugin se tait.
 Le score part de 100, chaque détection retranche sa pénalité, et le reste donne
 la lettre : **A** ≥ 90, **B** ≥ 75, **C** ≥ 55, **D** ≥ 35, **E** en dessous.
 
+Sur un scan de projet, la note globale est la moyenne des **seuls fichiers qui
+présentent au moins une alerte**. Les fichiers sains n'y entrent pas : sans
+cela, une poignée de modules utilitaires vides suffisait à ramener un projet à
+**A** en noyant le fichier qui pose réellement problème. Le nombre de fichiers
+concernés est affiché à côté de la lettre, et le pire d'entre eux est mis en
+avant — une lettre unique ne peut pas désigner un endroit.
+
 ## Développement
 
 ```bash
