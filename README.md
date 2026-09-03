@@ -98,6 +98,15 @@ d'un langage à l'autre — grammaire, noms de nœuds tree-sitter, règles
 applicables — est déclaré dans `src/languages.ts`. Les autres modules n'y font
 aucune référence. Ajouter Python revient à ajouter une entrée.
 
+**Le contexte d'exécution se déduit du code, pas des chemins.** Un `setInterval`
+de *polling* coûte une fois sur un serveur et autant de fois qu'il y a de
+visiteurs dans un navigateur : le plugin doit savoir où tourne le fichier. Il le
+lit dans l'arbre déjà parsé — imports de modules Node d'un côté, globales du
+navigateur et JSX de l'autre — plutôt que d'imposer une convention de dossiers,
+qui diffère à chaque framework. Seuls les indices francs comptent, et des
+indices contradictoires donnent « indéterminé » : en rendu côté serveur, un
+fichier tourne réellement des deux côtés.
+
 **Deux grammaires pour JS/TS, pas trois.** `tsx` est un sur-ensemble de
 `javascript` et couvre `.js`, `.jsx` et `.tsx`. Mais elle ne peut pas remplacer
 `typescript` pour les `.ts` : elle lit l'assertion `<Type>valeur` comme une
