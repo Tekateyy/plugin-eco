@@ -48,11 +48,16 @@ la lettre : **A** ≥ 90, **B** ≥ 75, **C** ≥ 55, **D** ≥ 35, **E** en des
 
 ```bash
 npm install
-npm run compile
+npm test
 ```
 
 Puis `F5` dans VSCode pour lancer une fenêtre de test, et ouvrir
 `samples/Example.java` — il déclenche les six règles.
+
+Les tests utilisent `node:test`, sans dépendance supplémentaire, et s'exécutent
+sur le code compilé — donc sur ce qui part réellement dans l'extension. Ils
+couvrent chaque règle (déclenchement et non-déclenchement), les seuils de
+l'étiquette, et le résultat attendu sur `samples/Example.java`.
 
 Pour produire l'extension installable :
 

@@ -5,6 +5,7 @@ CLAUDE.md
 scripts/**
 samples/**
 src/**
+test/**
 tsconfig.json
 out/**/*.map
 
