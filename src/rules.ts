@@ -41,14 +41,19 @@ const FREQUENT_INTERVAL_MS = 1000;
 const THROTTLE_PATTERN = /debounce|throttle|raf|requestAnimationFrame/i;
 
 /**
- * Une vraie requête, pas un mot qui contient « select ».
+ * Une vraie requête, pas une chaîne qui contient les mots.
  *
- * Un simple `includes('SELECT')` classait `"selection"`, `"selected"` et
- * `"onSelect"` comme des requêtes SQL : 34 fausses alertes sur le seul
- * compilateur TypeScript. Les délimiteurs de mot et la présence de `FROM`
- * suppriment le bruit.
+ * Deux faux positifs successifs ont façonné ce motif :
+ *  - `includes('SELECT')` classait `"selection"` et `"onSelect"` comme des
+ *    requêtes — 34 alertes sur le seul compilateur TypeScript ;
+ *  - exiger seulement `SELECT` puis `FROM` en délimiteurs de mot ne suffisait
+ *    pas non plus : un bloc CSS-in-JS contenant `input, select, textarea {…}`
+ *    et `@keyframes spin { from {…} }` déclenchait la règle.
+ *
+ * Une requête *commence* par `SELECT`, éventuellement précédé d'un `WITH`.
+ * L'ancrage en tête supprime les deux cas sans perdre les requêtes réelles.
  */
-const SELECT_FROM = /\bSELECT\b[\s\S]*\bFROM\b/;
+const SELECT_FROM = /^\s*(WITH\b[\s\S]*?)?SELECT\b[\s\S]*\bFROM\b/;
 
 /**
  * Parcourt l'AST et collecte les findings énergivores applicables au langage.
@@ -207,7 +212,8 @@ function traverse(
 
   // ── Règle 6 : requête SQL sans pagination (partout, pas seulement en boucle) ──
   if (ctx.active('sql-without-limit') && ctx.nodes.stringLiteral.includes(node.type)) {
-    const upper = node.text.toUpperCase();
+    // Sans retirer les guillemets, l'ancrage en tête ne peut pas s'appliquer.
+    const upper = unquote(node.text).toUpperCase();
     if (SELECT_FROM.test(upper) && !upper.includes('LIMIT') && !upper.includes('ROWNUM')) {
       findings.push({
         startLine: node.startPosition.row,
