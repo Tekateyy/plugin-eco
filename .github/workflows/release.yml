@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publier sur npm
+    name: Mettre en attente sur npm
     runs-on: ubuntu-latest
 
     permissions:
@@ -30,8 +30,8 @@ jobs:
           cache: npm
           registry-url: 'https://registry.npmjs.org'
 
-      # Le trusted publishing exige npm >= 11.5.1 ; la version embarquée par
-      # Node dépend de l'image du runner, on ne la subit pas.
+      # La publication différée exige npm >= 11.15.0 ; la version embarquée
+      # par Node dépend de l'image du runner, on ne la subit pas.
       - name: Mettre npm à jour
         run: npm install -g npm@latest
 
@@ -52,8 +52,12 @@ jobs:
       - name: Tests
         run: npm test
 
-      # --provenance signe le paquet et le lie publiquement au commit et au
-      # workflow qui l'ont produit (attestation Sigstore, visible sur npmjs).
-      # Aucun jeton n'est passé : l'authentification vient de l'OIDC ci-dessus.
-      - name: Publier
-        run: npm publish --provenance
+      # `npm stage publish` (et non `npm publish`) : le trusted publisher n'autorise
+      # que la mise en attente, pas la publication directe. Le paquet est envoyé au
+      # registre mais reste non installable tant qu'il n'est pas approuvé à la main
+      # (npm stage approve, 2FA obligatoire à ce moment-là) — un CI compromis ne
+      # peut donc jamais publier tout seul. --provenance a le même effet qu'avec
+      # npm publish (attestation Sigstore, visible sur npmjs). Aucun jeton n'est
+      # passé : l'authentification vient de l'OIDC ci-dessus.
+      - name: Mettre en attente
+        run: npm stage publish --provenance
