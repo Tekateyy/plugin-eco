@@ -2,7 +2,7 @@
   "name": "plugin-eco",
   "displayName": "Plugin Eco — Green Coding",
   "description": "Analyse statique de la consommation énergétique du code Java, JavaScript et TypeScript. Score A–E inspiré du DPE.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "greencoding",
   "license": "MIT",
   "repository": {
