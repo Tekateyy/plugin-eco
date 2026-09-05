@@ -18,7 +18,10 @@ function packedFiles() {
     cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32',
   });
   assert.strictEqual(r.status, 0, `npm pack a échoué : ${r.stderr}`);
-  return JSON.parse(r.stdout)[0].files.map(f => f.path.replace(/\\/g, '/'));
+  // npm < 12 rend un tableau `[{...}]` ; npm >= 12 un objet `{"<nom>": {...}}`.
+  // `Object.values` lit les deux formes indifféremment, sans figer sur l'une.
+  const [paquet] = Object.values(JSON.parse(r.stdout));
+  return paquet.files.map(f => f.path.replace(/\\/g, '/'));
 }
 
 describe('contenu du paquet npm', () => {
