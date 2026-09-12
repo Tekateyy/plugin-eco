@@ -62,6 +62,7 @@ describe('contenu du paquet npm', () => {
       'out/languages.js', 'out/parser.js',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
       'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
+      'out/wasm/tree-sitter-python.wasm',
     ]) {
       assert.ok(files.includes(requis), `${requis} manque au paquet`);
     }

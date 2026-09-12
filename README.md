@@ -1,7 +1,8 @@
 # plugin-eco
 
-Extension VSCode qui note la sobriété énergétique du code **Java, JavaScript et
-TypeScript**, avec une étiquette **A → E** empruntée au DPE des logements.
+Extension VSCode qui note la sobriété énergétique du code **Java, JavaScript,
+TypeScript et Python**, avec une étiquette **A → E** empruntée au DPE des
+logements.
 
 L'analyse est statique et locale : le fichier est parsé à la frappe, les
 patterns énergivores connus sont signalés en annotations inline, et le score du
@@ -21,14 +22,14 @@ fichier s'affiche dans la barre de statut.
 
 ## Utilisation
 
-Ouvrir un fichier `.java` : l'analyse démarre seule. Trois commandes dans la
-palette (`Ctrl+Shift+P`) :
+Ouvrir un fichier `.java`, `.js`, `.ts` ou `.py` : l'analyse démarre seule.
+Trois commandes dans la palette (`Ctrl+Shift+P`) :
 
 | Commande | Effet |
 |---|---|
 | `Greencoding: Analyser le fichier` | relance l'analyse du fichier actif |
 | `Greencoding: Ouvrir le rapport détaillé` | ouvre le panneau, score + détail par ligne |
-| `Greencoding: Analyser tout le workspace` | scanne tous les `.java`, classe les fichiers du pire au meilleur |
+| `Greencoding: Analyser tout le workspace` | scanne tous les fichiers supportés, classe les fichiers du pire au meilleur |
 
 ## Ce qui est détecté
 
@@ -45,7 +46,7 @@ palette (`Ctrl+Shift+P`) :
 
 | Pattern | Sévérité | Pénalité |
 |---|---|---|
-| I/O synchrone dans une fonction (`readFileSync`, `execSync`…) | haute | 12 |
+| I/O synchrone dans une fonction (`readFileSync`, `execSync`…) *(JS/TS)* | haute | 12 |
 | I/O bloquant en boucle *(Java)* | haute | 12 |
 
 **Côté navigateur** — le coût est payé par l'appareil de chaque visiteur :
@@ -58,10 +59,13 @@ palette (`Ctrl+Shift+P`) :
 | Import global d'une bibliothèque lourde (`lodash`, `moment`…) | moyenne | 7 |
 
 **Java seulement** : concaténation `+=` en boucle et `new` en boucle (moyenne, 7
-chacune). Ces deux règles ne s'appliquent **pas** à JavaScript, et c'est
-délibéré : V8 représente les concaténations par des *ropes*, et son
+chacune). Ces deux règles ne s'appliquent **pas** à JavaScript ni à Python, et
+c'est délibéré : V8 représente les concaténations par des *ropes* et son
 ramasse-miettes générationnel rend l'allocation à courte durée de vie bon
-marché. Les signaler reviendrait à crier au loup sur du code sain.
+marché ; CPython, lui, réalloue `s += t` sur place quand la chaîne n'a qu'une
+référence, et `total += 1` en boucle est un idiome trop courant pour être
+signalé. Les deux langages arrivent à la même exclusion par des chemins
+différents.
 
 Une règle restreinte à un côté ne se déclenche **jamais** sur un fichier dont le
 contexte est indéterminé : sans certitude, le plugin se tait.
@@ -86,7 +90,7 @@ npm test
 Puis `F5` dans VSCode pour lancer une fenêtre de test, et ouvrir un des exemples
 de `samples/` : `Example.java` déclenche les six règles Java, `example.ts` montre
 ce qui s'applique hors contexte connu, `example-web.tsx` déclenche les règles
-navigateur.
+navigateur, `example.py` déclenche les quatre règles portées à Python.
 
 Les tests utilisent `node:test`, sans dépendance supplémentaire, et s'exécutent
 sur le code compilé — donc sur ce qui part réellement dans l'extension. Ils
@@ -155,12 +159,15 @@ mesure à l'exécution, où ils seront mesurés plutôt que devinés.
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`
 juste après, demande un arbre syntaxique. tree-sitter le fournit pour de
-nombreux langages avec un seul parseur — Python reste à ajouter.
+nombreux langages avec un seul parseur.
 
 **Un descripteur de langage, pas des conditions dispersées.** Tout ce qui varie
 d'un langage à l'autre — grammaire, noms de nœuds tree-sitter, règles
 applicables — est déclaré dans `src/languages.ts`. Les autres modules n'y font
-aucune référence. Ajouter Python revient à ajouter une entrée.
+aucune référence : ajouter Python s'est fait sans toucher au moteur de règles,
+seulement à ce descripteur et aux quelques endroits qui lisaient une structure
+d'appel propre à Java (`object`/`name`) plutôt que la forme générique
+`function` → `member_expression`/`attribute` partagée par JS et Python.
 
 **Le contexte d'exécution se déduit du code, pas des chemins.** Un `setInterval`
 de *polling* coûte une fois sur un serveur et autant de fois qu'il y a de
@@ -184,8 +191,8 @@ installée n'a pas les `node_modules` de développement sous la main : le script
 
 ## État
 
-Analyse statique de Java, JavaScript et TypeScript, avec un jeu de règles web
-qui distingue le code serveur du code navigateur. Python, la mesure à
+Analyse statique de Java, JavaScript, TypeScript et Python, avec un jeu de
+règles web qui distingue le code serveur du code navigateur. La mesure à
 l'exécution (Wh et CO₂) et un portage IntelliJ sont les étapes suivantes.
 
 ## Licence

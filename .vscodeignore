@@ -13,8 +13,8 @@ out/**/*.map
 # Les .d.ts servent le paquet npm ; le .vsix n'a pas de consommateur TypeScript.
 out/**/*.d.ts
 
-# tree-sitter-wasms est une devDependency : seul tree-sitter-java.wasm
-# est repris dans out/wasm/ au build.
+# tree-sitter-wasms est une devDependency : seules les grammaires déclarées
+# dans src/languages.ts sont reprises dans out/wasm/ au build.
 node_modules/tree-sitter-wasms/**
 
 # Doublon de 188 Ko : initParser() pointe locateFile() vers out/wasm/,

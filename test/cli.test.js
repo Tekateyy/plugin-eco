@@ -158,7 +158,7 @@ describe('exécution réelle du binaire', () => {
   test('analyse samples/ et rend le score attendu', () => {
     const r = run(['samples']);
     assert.strictEqual(r.code, 0);
-    assert.match(r.stdout, /Éco : D 47\/100/);
+    assert.match(r.stdout, /Éco : D 48\/100/);
     assert.match(r.stdout, /samples\/Example\.java/);
   });
 
@@ -177,7 +177,7 @@ describe('exécution réelle du binaire', () => {
     assert.strictEqual(r.code, 0);
     const report = JSON.parse(r.stdout);
     assert.strictEqual(report.global.letter, 'D');
-    assert.strictEqual(report.filesWithFindings, 3);
+    assert.strictEqual(report.filesWithFindings, 4);
     assert.ok(Array.isArray(report.files));
     // Le pire fichier vient en premier.
     assert.strictEqual(report.files[0].score.letter, 'E');

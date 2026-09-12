@@ -30,8 +30,8 @@ export interface CliOptions {
 
 export const USAGE = `Usage : plugin-eco [options] [chemins...]
 
-Analyse la consommation énergétique estimée du code Java, JavaScript et
-TypeScript, et rend une étiquette A–E inspirée du DPE.
+Analyse la consommation énergétique estimée du code Java, JavaScript,
+TypeScript et Python, et rend une étiquette A–E inspirée du DPE.
 
 Options
   --format <text|json>   Format de sortie (défaut : text)
