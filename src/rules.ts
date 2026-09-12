@@ -34,6 +34,12 @@ const HEAVY_MODULES = new Set([
   'lodash', 'underscore', 'moment', 'rxjs', 'jquery',
 ]);
 
+/**
+ * Couples (objet, méthode) qui compilent une regex — coûteux si répété en boucle.
+ * `Pattern.compile` en Java, `re.compile` en Python.
+ */
+const REGEX_COMPILE_CALLS: Record<string, string> = { Pattern: 'compile', re: 'compile' };
+
 /** En dessous, un timer permanent maintient le processeur éveillé en continu. */
 const FREQUENT_INTERVAL_MS = 1000;
 
@@ -186,23 +192,22 @@ function traverse(
   }
 
   // ── Règles 4 et 5 : appels de méthodes détectables en boucle ─────────────
-  // Ces deux règles lisent les champs `name` et `object`, propres à la
-  // structure d'appel de Java. Elles ne sont pour l'instant déclarées que
-  // pour ce langage ; l'équivalent JS/TS relève du jeu de règles web.
+  // `calleeParts` lit la structure d'appel de chaque grammaire : `object`/
+  // `name` directs sur `method_invocation` en Java, `function` en attribut
+  // (`member_expression`/`attribute`) sur `call_expression`/`call` en JS/Python.
   if (nextInLoop && ctx.nodes.call.includes(node.type)) {
-    const methodName = node.childForFieldName('name')?.text ?? '';
-    const objectName = node.childForFieldName('object')?.text ?? '';
+    const { object: objectName, name: methodName } = calleeParts(node);
 
-    // Règle 4 : Pattern.compile() en boucle
-    if (ctx.active('regex-compile-in-loop') && objectName === 'Pattern' && methodName === 'compile') {
+    // Règle 4 : compilation de regex en boucle (Pattern.compile, re.compile)
+    if (ctx.active('regex-compile-in-loop') && REGEX_COMPILE_CALLS[objectName] === methodName) {
       findings.push({
         startLine: node.startPosition.row,
         startChar: node.startPosition.column,
         endLine: node.endPosition.row,
         endChar: node.endPosition.column,
         message:
-          'Pattern.compile() appelé en boucle — compiler la regex une seule fois ' +
-          'en dehors de la boucle (constante statique ou champ de classe).',
+          `${objectName}.${methodName}() appelé en boucle — compiler la regex ` +
+          'une seule fois en dehors de la boucle.',
         severity: 'high',
         weight: 12,
       });
@@ -243,19 +248,16 @@ function traverse(
     }
   }
 
-  // ── Règles web ───────────────────────────────────────────────────────────
-  // Les cinq suivantes sont propres à JS/TS : elles lisent des formes d'arbre
-  // et des API qui n'existent que là, et ne sont déclarées que pour ces
-  // langages. Même convention que les règles 4 et 5 pour Java.
-
-  // Attente enchaînée dans une boucle
-  if (ctx.active('await-in-loop') && scope.inLoopHere && node.type === 'await_expression') {
+  // ── Attente enchaînée dans une boucle (JS/TS et Python) ──────────────────
+  // Repose sur `ctx.nodes.await`, vide en Java (pas d'async/await).
+  if (ctx.active('await-in-loop') && scope.inLoopHere && ctx.nodes.await.includes(node.type)) {
     findings.push({
       ...span(node),
       message:
         'Attente (`await`) dans une boucle — les appels s\'enchaînent au lieu de ' +
-        'se recouvrir. Collecter les promesses et les attendre ensemble ' +
-        '(`Promise.all`), sauf si l\'ordre est réellement nécessaire.',
+        'se recouvrir. Collecter les tâches et les attendre ensemble ' +
+        '(`Promise.all` en JS, `asyncio.gather` en Python), sauf si l\'ordre est ' +
+        'réellement nécessaire.',
       severity: 'high',
       weight: 12,
     });
@@ -400,6 +402,35 @@ function heavyImportFinding(node: Parser.SyntaxNode, source: string): Finding {
   };
 }
 
+/**
+ * Objet et méthode d'un appel, quelle que soit la forme du nœud d'appel.
+ *
+ * Java (`method_invocation`) porte `object` et `name` directement. JS
+ * (`call_expression`) et Python (`call`) portent un champ `function` qui,
+ * pour un appel de méthode, est lui-même un `member_expression` (objet +
+ * `property`) ou un `attribute` (objet + `attribute`).
+ */
+function calleeParts(node: Parser.SyntaxNode): { object: string; name: string } {
+  const directName = node.childForFieldName('name');
+  if (directName) {
+    return { object: node.childForFieldName('object')?.text ?? '', name: directName.text };
+  }
+  const callee = node.childForFieldName('function');
+  if (callee?.type === 'member_expression') {
+    return {
+      object: callee.childForFieldName('object')?.text ?? '',
+      name: callee.childForFieldName('property')?.text ?? '',
+    };
+  }
+  if (callee?.type === 'attribute') {
+    return {
+      object: callee.childForFieldName('object')?.text ?? '',
+      name: callee.childForFieldName('attribute')?.text ?? '',
+    };
+  }
+  return { object: '', name: callee?.text ?? '' };
+}
+
 function isStringNode(node: Parser.SyntaxNode, ctx: Ctx): boolean {
   return ctx.nodes.stringLiteral.includes(node.type);
 }
@@ -417,6 +448,13 @@ function isThrottled(node: Parser.SyntaxNode | undefined): boolean {
   return THROTTLE_PATTERN.test(node.text);
 }
 
+/**
+ * Retire les délimiteurs d'un littéral de chaîne, préfixe compris — Python
+ * autorise jusqu'à deux lettres (`f"..."`, `rb"..."`) et des guillemets triples
+ * (`"""..."""`), absents des autres grammaires supportées.
+ */
 function unquote(text: string): string {
-  return text.replace(/^['"`]|['"`]$/g, '');
+  return text
+    .replace(/^[a-zA-Z]{0,2}['"`]{1,3}/, '')
+    .replace(/['"`]{1,3}$/, '');
 }

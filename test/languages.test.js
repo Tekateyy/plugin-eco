@@ -15,13 +15,13 @@ describe('descripteurs de langage', () => {
   });
 
   test('les langages attendus sont supportés', () => {
-    for (const id of ['java', 'javascript', 'javascriptreact', 'typescript', 'typescriptreact']) {
+    for (const id of ['java', 'javascript', 'javascriptreact', 'typescript', 'typescriptreact', 'python']) {
       assert.ok(isSupported(id), `${id} devrait être supporté`);
     }
   });
 
   test('un langage inconnu ne l\'est pas', () => {
-    for (const id of ['python', 'go', 'plaintext', '']) {
+    for (const id of ['go', 'ruby', 'plaintext', '']) {
       assert.strictEqual(isSupported(id), false);
       assert.strictEqual(specFor(id), undefined);
     }
@@ -50,5 +50,20 @@ describe('descripteurs de langage', () => {
 
   test('Java conserve les six règles', () => {
     assert.strictEqual(specFor('java').rules.length, 6);
+  });
+
+  test('Python a un contexte fixé au serveur, comme Java', () => {
+    assert.strictEqual(specFor('python').fixedContext, 'server');
+  });
+
+  test('Python exclut += en boucle et les règles web', () => {
+    const py = specFor('python').rules;
+    assert.ok(py.includes('nested-loops'));
+    assert.ok(py.includes('regex-compile-in-loop'));
+    assert.ok(py.includes('sql-without-limit'));
+    assert.ok(py.includes('await-in-loop'));
+    assert.ok(!py.includes('string-concat-in-loop'), 'bruit en Python : réallocation sur place');
+    assert.ok(!py.includes('object-creation-in-loop'), 'pas de `new` en Python');
+    assert.ok(!py.includes('polling-interval'), 'règle web, sans objet côté serveur');
   });
 });

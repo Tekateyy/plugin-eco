@@ -67,6 +67,8 @@ export interface NodeNames {
   compoundAssignment: string[];
   /** Frontières de fonction, qui bornent la portée de certaines règles. */
   functions: string[];
+  /** Attente asynchrone — `await_expression` en JS, `await` en Python, rien en Java. */
+  await: string[];
 }
 
 export interface LanguageSpec {
@@ -99,6 +101,7 @@ const JAVA_NODES: NodeNames = {
   stringLiteral: ['string_literal'],
   compoundAssignment: ['assignment_expression'],
   functions: ['method_declaration', 'constructor_declaration', 'lambda_expression'],
+  await: [],
 };
 
 // Les grammaires typescript et tsx étendent toutes deux javascript :
@@ -113,6 +116,25 @@ const JS_NODES: NodeNames = {
     'function_declaration', 'function_expression', 'arrow_function',
     'method_definition', 'generator_function_declaration',
   ],
+  await: ['await_expression'],
+};
+
+// Python n'a pas de `new` : instancier une classe est un appel comme un autre,
+// indiscernable d'une fonction sans information de type. `augmented_assignment`
+// est déclaré pour l'exactitude du descripteur, mais aucune règle Python ne le
+// lit (voir PY_RULES).
+//
+// Les compréhensions (`[x for a in xs for x in a]`) ne sont pas des boucles au
+// sens du descripteur : leurs `for_in_clause` sont frères, pas imbriqués, et
+// la règle de profondeur ne les verrait pas. Non traité pour l'instant.
+const PY_NODES: NodeNames = {
+  loops: ['for_statement', 'while_statement'],
+  objectCreation: [],
+  call: ['call'],
+  stringLiteral: ['string', 'concatenated_string'],
+  compoundAssignment: ['augmented_assignment'],
+  functions: ['function_definition', 'lambda'],
+  await: ['await'],
 };
 
 // --- Règles ---------------------------------------------------------------
@@ -146,6 +168,24 @@ const JS_RULES: RuleId[] = [
   'polling-interval',
   'unthrottled-event-listener',
   'whole-library-import',
+];
+
+/**
+ * Python : les quatre règles qui se transposent sans heuristique nouvelle.
+ *
+ * `string-concat-in-loop` est volontairement absente : CPython réalloue
+ * `s += t` sur place quand la chaîne n'a qu'une référence, et `total += 1`
+ * en boucle est partout — la règle ferait surtout du bruit sur des compteurs.
+ * `object-creation-in-loop` n'a pas de nœud à lire (pas de `new`).
+ * `blocking-io-in-loop` attend sa version Python (requête HTTP ou
+ * `cursor.execute()` en boucle), à concevoir et valider sur du vrai code.
+ * Les règles web n'ont pas de sens : Python tourne côté serveur.
+ */
+const PY_RULES: RuleId[] = [
+  'nested-loops',
+  'regex-compile-in-loop',
+  'sql-without-limit',
+  'await-in-loop',
 ];
 
 // --- Descripteurs ---------------------------------------------------------
@@ -187,6 +227,17 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.tsx'],
     nodes: JS_NODES,
     rules: JS_RULES,
+  },
+  {
+    label: 'Python',
+    grammarFile: 'tree-sitter-python.wasm',
+    vscodeLanguageIds: ['python'],
+    extensions: ['.py'],
+    nodes: PY_NODES,
+    rules: PY_RULES,
+    // Python n'a pas de moitié navigateur, comme Java : c'est du serveur par
+    // construction, dispensé de l'inférence client/serveur.
+    fixedContext: 'server',
   },
 ];
 

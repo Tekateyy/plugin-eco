@@ -46,7 +46,7 @@ describe('parsing par langage', () => {
   });
 
   test('un langage non supporté lève une erreur explicite', () => {
-    assert.throws(() => parse('print(1)', 'python'), /Langage non supporté/);
+    assert.throws(() => parse('puts 1', 'ruby'), /Langage non supporté/);
   });
 });
 

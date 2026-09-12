@@ -2,7 +2,8 @@
 //
 // À l'exécution, l'extension les résout depuis context.extensionUri : node_modules
 // n'est pas fiable dans un .vsix installé, out/ l'est. tree-sitter-wasms embarque
-// une quarantaine de grammaires, on ne prend que Java.
+// une quarantaine de grammaires, on ne prend que celles déclarées dans
+// src/languages.ts.
 
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +16,7 @@ const SOURCES = [
   require.resolve('tree-sitter-wasms/out/tree-sitter-java.wasm'),
   require.resolve('tree-sitter-wasms/out/tree-sitter-tsx.wasm'),
   require.resolve('tree-sitter-wasms/out/tree-sitter-typescript.wasm'),
+  require.resolve('tree-sitter-wasms/out/tree-sitter-python.wasm'),
 ];
 
 const destDir = path.join(__dirname, '..', 'out', 'wasm');
