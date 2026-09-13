@@ -1,11 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { parseWith } from './parser';
-import { collectFindings } from './rules';
+import { collectFindings, filterDisabled } from './rules';
 import { computeScore, aggregateScore } from './scoring';
 import { LANGUAGES, LanguageSpec, globFor, excludeGlob } from './languages';
 import { inferContext } from './context';
-import { FileResult, WorkspaceReport, Score } from './types';
+import { FileResult, WorkspaceReport, RuleId } from './types';
 
 /**
  * Scanne tous les fichiers analysables du workspace, calcule un score par
@@ -17,6 +17,9 @@ import { FileResult, WorkspaceReport, Score } from './types';
 export async function analyzeWorkspace(
   diagnosticCollection: vscode.DiagnosticCollection
 ): Promise<WorkspaceReport | null> {
+  const disabledRules = vscode.workspace
+    .getConfiguration('plugin-eco')
+    .get<RuleId[]>('disabledRules', []);
 
   // Un passage par langage : chaque fichier garde le descripteur qui le décrit,
   // faute de quoi on ne saurait plus quelle grammaire lui appliquer.
@@ -60,7 +63,7 @@ export async function analyzeWorkspace(
         const code = Buffer.from(bytes).toString('utf-8');
         const tree = parseWith(code, spec);
         const { context } = inferContext(tree.rootNode, spec);
-        const findings = collectFindings(tree.rootNode, spec, context);
+        const findings = filterDisabled(collectFindings(tree.rootNode, spec, context), disabledRules);
         const score = computeScore(findings);
 
         // Poser les diagnostics inline pour ce fichier
@@ -71,6 +74,7 @@ export async function analyzeWorkspace(
             : vscode.DiagnosticSeverity.Information;
           const diag = new vscode.Diagnostic(range, `⚡ ${f.message}`, severity);
           diag.source = 'Plugin Eco';
+          diag.code = f.ruleId;
           return diag;
         }));
 

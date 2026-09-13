@@ -1,7 +1,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 
-const { LANGUAGES, specFor, isSupported, grammarFiles } = require('../out/languages');
+const { LANGUAGES, specFor, isSupported, grammarFiles, ALL_RULE_IDS, RULE_CONTEXTS } = require('../out/languages');
 
 describe('descripteurs de langage', () => {
   test('chaque languageId VSCode ne résout que vers un seul descripteur', () => {
@@ -65,5 +65,14 @@ describe('descripteurs de langage', () => {
     assert.ok(!py.includes('string-concat-in-loop'), 'bruit en Python : réallocation sur place');
     assert.ok(!py.includes('object-creation-in-loop'), 'pas de `new` en Python');
     assert.ok(!py.includes('polling-interval'), 'règle web, sans objet côté serveur');
+  });
+});
+
+describe('ALL_RULE_IDS', () => {
+  test('couvre exactement les clés de RULE_CONTEXTS, sans doublon', () => {
+    const expected = Object.keys(RULE_CONTEXTS);
+    assert.strictEqual(ALL_RULE_IDS.length, expected.length);
+    assert.strictEqual(new Set(ALL_RULE_IDS).size, ALL_RULE_IDS.length, 'doublon dans ALL_RULE_IDS');
+    for (const id of expected) assert.ok(ALL_RULE_IDS.includes(id), `${id} manquant`);
   });
 });

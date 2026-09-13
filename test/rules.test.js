@@ -3,7 +3,7 @@ const assert = require('node:assert');
 const path = require('node:path');
 
 const { initParser, parse } = require('../out/parser');
-const { collectFindings } = require('../out/rules');
+const { collectFindings, filterDisabled } = require('../out/rules');
 const { specFor } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
@@ -194,5 +194,30 @@ describe('code sobre', () => {
         }
       }`);
     assert.deepStrictEqual(findings, []);
+  });
+});
+
+describe('filterDisabled', () => {
+  const twoFindings = () => analyze(inMethod(`
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j < n; j++) { a(); }
+    }
+    String q = "SELECT * FROM t";`));
+
+  test('sans règle désactivée, rien ne change', () => {
+    const findings = twoFindings();
+    assert.deepStrictEqual(filterDisabled(findings, []), findings);
+  });
+
+  test('retire uniquement les findings de la règle désactivée', () => {
+    const findings = twoFindings();
+    const filtered = filterDisabled(findings, ['nested-loops']);
+    assert.strictEqual(filtered.length, findings.length - 1);
+    assert.ok(filtered.every(f => f.ruleId !== 'nested-loops'));
+  });
+
+  test('plusieurs règles désactivées à la fois', () => {
+    const findings = twoFindings();
+    assert.deepStrictEqual(filterDisabled(findings, ['nested-loops', 'sql-without-limit']), []);
   });
 });

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { initParser, parse } = require('../out/parser');
 const { collectFindings } = require('../out/rules');
 const { computeScore } = require('../out/scoring');
-const { specFor } = require('../out/languages');
+const { specFor, ALL_RULE_IDS } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
 
@@ -50,6 +50,7 @@ describe('samples/Example.java — analyse de bout en bout', () => {
       assert.ok(f.weight > 0, 'poids nul');
       assert.ok(f.message.length > 0, 'message vide');
       assert.ok(['high', 'medium', 'low'].includes(f.severity), 'sévérité inconnue');
+      assert.ok(ALL_RULE_IDS.includes(f.ruleId), `ruleId inconnu : ${f.ruleId}`);
     }
   });
 });

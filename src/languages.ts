@@ -1,4 +1,4 @@
-import { ExecutionContext } from './types';
+import { ExecutionContext, RuleId } from './types';
 
 /**
  * Descripteurs de langage.
@@ -8,19 +8,10 @@ import { ExecutionContext } from './types';
  * modules ne connaissent que ce descripteur — ils n'ont plus de `if (java)`.
  */
 
-/** Identifiant d'une règle de détection. */
-export type RuleId =
-  | 'nested-loops'
-  | 'string-concat-in-loop'
-  | 'object-creation-in-loop'
-  | 'regex-compile-in-loop'
-  | 'blocking-io-in-loop'
-  | 'sql-without-limit'
-  | 'await-in-loop'
-  | 'sync-io-in-function'
-  | 'polling-interval'
-  | 'unthrottled-event-listener'
-  | 'whole-library-import';
+// `RuleId` vit dans types.ts (voir ce fichier pour le pourquoi) ; ré-exporté
+// ici pour ne pas casser le point d'entrée bibliothèque ni le reste du code,
+// qui l'importaient depuis ce module.
+export type { RuleId };
 
 /**
  * Contexte d'exécution dans lequel chaque règle a un sens.
@@ -52,6 +43,9 @@ export function ruleAppliesIn(rule: RuleId, context: ExecutionContext): boolean 
   const allowed = RULE_CONTEXTS[rule];
   return allowed === 'any' || allowed.includes(context);
 }
+
+/** Tous les identifiants de règle connus — dérivé de `RULE_CONTEXTS` pour rester unique source de vérité. */
+export const ALL_RULE_IDS: RuleId[] = Object.keys(RULE_CONTEXTS) as RuleId[];
 
 /**
  * Noms des nœuds tree-sitter, qui diffèrent d'une grammaire à l'autre.

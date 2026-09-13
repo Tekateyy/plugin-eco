@@ -45,7 +45,33 @@
         "command": "greencoding.analyzeWorkspace",
         "title": "Greencoding: Analyser tout le workspace"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Plugin Eco",
+      "properties": {
+        "plugin-eco.disabledRules": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "nested-loops",
+              "string-concat-in-loop",
+              "object-creation-in-loop",
+              "regex-compile-in-loop",
+              "blocking-io-in-loop",
+              "sql-without-limit",
+              "await-in-loop",
+              "sync-io-in-function",
+              "polling-interval",
+              "unthrottled-event-listener",
+              "whole-library-import"
+            ]
+          },
+          "default": [],
+          "description": "Règles à ne jamais signaler, ni dans l'éditeur ni dans le rapport (voir le README pour le détail de chacune)."
+        }
+      }
+    }
   },
   "scripts": {
     "copy-wasm": "node scripts/copy-wasm.js",

@@ -1,6 +1,6 @@
 import Parser from 'web-tree-sitter';
-import { ExecutionContext, Finding } from './types';
-import { LanguageSpec, NodeNames, RuleId, ruleAppliesIn } from './languages';
+import { ExecutionContext, Finding, RuleId } from './types';
+import { LanguageSpec, NodeNames, ruleAppliesIn } from './languages';
 
 /** Méthodes d'I/O bloquantes à détecter lorsqu'elles sont appelées en boucle. */
 const IO_METHOD_NAMES = new Set([
@@ -103,6 +103,19 @@ export function collectFindings(
   return findings;
 }
 
+/**
+ * Retire les findings dont la règle est désactivée.
+ *
+ * Point de passage unique pour l'extension, le scan workspace et le CLI :
+ * filtrer chacun à sa façon aurait pu faire diverger le verdict entre l'IDE et
+ * la pipeline, ce que le CLI existe justement pour empêcher.
+ */
+export function filterDisabled(findings: Finding[], disabledRules: readonly RuleId[]): Finding[] {
+  return disabledRules.length === 0
+    ? findings
+    : findings.filter(f => !disabledRules.includes(f.ruleId));
+}
+
 interface Ctx {
   nodes: NodeNames;
   active: (rule: RuleId) => boolean;
@@ -154,6 +167,7 @@ function traverse(
         'Envisager une restructuration algorithmique ou une mise en cache.',
       severity: 'high',
       weight: 15,
+      ruleId: 'nested-loops',
     });
   }
 
@@ -171,6 +185,7 @@ function traverse(
           "préférer StringBuilder pour éviter la création d'objets String répétés.",
         severity: 'medium',
         weight: 7,
+        ruleId: 'string-concat-in-loop',
       });
     }
   }
@@ -188,6 +203,7 @@ function traverse(
         'hors de la boucle ou de réutiliser l\'instance existante.',
       severity: 'medium',
       weight: 7,
+      ruleId: 'object-creation-in-loop',
     });
   }
 
@@ -210,6 +226,7 @@ function traverse(
           'une seule fois en dehors de la boucle.',
         severity: 'high',
         weight: 12,
+        ruleId: 'regex-compile-in-loop',
       });
     }
 
@@ -225,6 +242,7 @@ function traverse(
           'charger les données hors de la boucle ou traiter en batch.',
         severity: 'high',
         weight: 12,
+        ruleId: 'blocking-io-in-loop',
       });
     }
   }
@@ -244,6 +262,7 @@ function traverse(
           'pour éviter de charger un volume non borné de données.',
         severity: 'high',
         weight: 12,
+        ruleId: 'sql-without-limit',
       });
     }
   }
@@ -260,6 +279,7 @@ function traverse(
         'réellement nécessaire.',
       severity: 'high',
       weight: 12,
+      ruleId: 'await-in-loop',
     });
   }
 
@@ -281,6 +301,7 @@ function traverse(
           'la variante asynchrone (`fs/promises`).',
         severity: 'high',
         weight: 12,
+        ruleId: 'sync-io-in-function',
       });
     }
 
@@ -297,6 +318,7 @@ function traverse(
           'ou un intervalle plus long.',
         severity: frequent ? 'high' : 'medium',
         weight: frequent ? 12 : 7,
+        ruleId: 'polling-interval',
       });
     }
 
@@ -312,6 +334,7 @@ function traverse(
             '`requestAnimationFrame()`.',
           severity: 'medium',
           weight: 7,
+          ruleId: 'unthrottled-event-listener',
         });
       }
     }
@@ -336,6 +359,7 @@ function traverse(
         'littéral `/.../`.',
       severity: 'high',
       weight: 12,
+      ruleId: 'regex-compile-in-loop',
     });
   }
 
@@ -366,6 +390,7 @@ function traverse(
             '`requestAnimationFrame()`.',
           severity: 'medium',
           weight: 7,
+          ruleId: 'unthrottled-event-listener',
         });
       }
     }
@@ -399,6 +424,7 @@ function heavyImportFinding(node: Parser.SyntaxNode, source: string): Finding {
       `(\`import { x } from '${source}/x'\`).`,
     severity: 'medium',
     weight: 7,
+    ruleId: 'whole-library-import',
   };
 }
 

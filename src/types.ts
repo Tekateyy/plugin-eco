@@ -2,6 +2,26 @@
 export type Severity = 'high' | 'medium' | 'low';
 
 /**
+ * Identifiant d'une règle de détection.
+ *
+ * Défini ici plutôt que dans `languages.ts` pour que `Finding` puisse le
+ * porter sans créer de cycle d'import (`languages.ts` importe déjà
+ * `ExecutionContext` depuis ce module).
+ */
+export type RuleId =
+  | 'nested-loops'
+  | 'string-concat-in-loop'
+  | 'object-creation-in-loop'
+  | 'regex-compile-in-loop'
+  | 'blocking-io-in-loop'
+  | 'sql-without-limit'
+  | 'await-in-loop'
+  | 'sync-io-in-function'
+  | 'polling-interval'
+  | 'unthrottled-event-listener'
+  | 'whole-library-import';
+
+/**
  * Où s'exécute le code analysé.
  *
  * L'enjeu énergétique n'est pas le même : un `setInterval` de polling coûte une
@@ -20,6 +40,8 @@ export interface Finding {
   message: string;
   severity: Severity;
   weight: number;     // pénalité sur le score de 0 à 100
+  /** Règle à l'origine du finding — permet de la désactiver individuellement. */
+  ruleId: RuleId;
 }
 
 /** Score énergétique agrégé pour un fichier. */
