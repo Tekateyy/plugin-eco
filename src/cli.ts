@@ -287,6 +287,27 @@ function mdCell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
+/**
+ * Rend un tableau Markdown avec les `|` alignés en colonnes.
+ *
+ * Purement cosmétique côté rendu — GitHub l'affiche à l'identique quelle que
+ * soit la largeur des cellules — mais le résultat part aussi tel quel sur
+ * stdout, dans le log brut du job, où l'alignement fait toute la lisibilité.
+ */
+function mdTable(headers: string[], rows: string[][]): string[] {
+  const widths = headers.map((h, col) =>
+    Math.max(3, h.length, ...rows.map(r => r[col].length))
+  );
+  const pad = (s: string, w: number) => s + ' '.repeat(w - s.length);
+  const line = (cells: string[]) => `| ${cells.map((c, i) => pad(c, widths[i])).join(' | ')} |`;
+
+  return [
+    line(headers),
+    `|${widths.map(w => '-'.repeat(w + 2)).join('|')}|`,
+    ...rows.map(line),
+  ];
+}
+
 export function renderMarkdown(report: WorkspaceReport): string {
   const { global, files, filesWithFindings } = report;
   const { high, medium } = global.findingCount;
@@ -305,24 +326,26 @@ export function renderMarkdown(report: WorkspaceReport): string {
     return md.join('\n');
   }
 
-  md.push('', '| Fichier | Score | Alertes |', '|---|---|---|');
-  for (const file of concerned) {
-    md.push(
-      `| \`${mdCell(file.fileName)}\` | ${LETTER_ICONS[file.score.letter]} ${file.score.letter} ${file.score.value} ` +
-      `| ${file.findings.length} |`
-    );
-  }
+  md.push('', ...mdTable(
+    ['Fichier', 'Score', 'Alertes'],
+    concerned.map(file => [
+      `\`${mdCell(file.fileName)}\``,
+      `${LETTER_ICONS[file.score.letter]} ${file.score.letter} ${file.score.value}`,
+      `${file.findings.length}`,
+    ])
+  ));
 
   md.push('', '<details><summary>Détail des alertes</summary>', '');
-  md.push('| Fichier | Ligne | Sévérité | Règle | Message |', '|---|---|---|---|---|');
-  for (const file of concerned) {
-    for (const f of file.findings) {
-      md.push(
-        `| \`${mdCell(file.fileName)}\` | ${f.startLine + 1} | ${f.severity} | \`${f.ruleId}\` ` +
-        `| ${mdCell(f.message.split(' — ')[0])} |`
-      );
-    }
-  }
+  md.push(...mdTable(
+    ['Fichier', 'Ligne', 'Sévérité', 'Règle', 'Message'],
+    concerned.flatMap(file => file.findings.map(f => [
+      `\`${mdCell(file.fileName)}\``,
+      `${f.startLine + 1}`,
+      f.severity,
+      `\`${f.ruleId}\``,
+      mdCell(f.message.split(' — ')[0]),
+    ]))
+  ));
   md.push('', '</details>');
 
   return md.join('\n');

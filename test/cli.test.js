@@ -259,13 +259,40 @@ describe('format github — renderMarkdown', () => {
   test('les fichiers sains ne sont pas listés, la barre verticale est échappée', () => {
     const md = renderMarkdown(report);
     assert.ok(!md.includes('src/sain.ts'));
-    assert.match(md, /\| `src\/a\\\|b\.ts` \| 🟧 D 40 \| 1 \|/);
+    assert.match(md, /\| `src\/a\\\|b\.ts`\s*\| 🟧 D 40\s*\| 1\s*\|/);
   });
 
   test('le détail est replié et porte la règle', () => {
     const md = renderMarkdown(report);
     assert.match(md, /<details><summary>Détail des alertes<\/summary>/);
-    assert.match(md, /\| 5 \| high \| `nested-loops` \| Boucle imbriquée \|/);
+    assert.match(md, /\| 5\s*\| high\s*\| `nested-loops`\s*\| Boucle imbriquée\s*\|/);
+  });
+
+  test('les colonnes de chaque tableau sont alignées — chaque | tombe à la même position', () => {
+    // Un tableau Markdown reste valide sans ça, mais le résumé part aussi sur
+    // stdout en texte brut : l'alignement est ce qui le rend lisible là.
+    const tables = renderMarkdown(report)
+      .split('\n\n')
+      .map(block => block.split('\n').filter(l => l.startsWith('|')))
+      .filter(lines => lines.length > 1);
+
+    assert.ok(tables.length >= 2, 'les deux tableaux attendus sont présents');
+    for (const lines of tables) {
+      // Un `|` précédé d'un `\` est une barre échappée à l'intérieur d'une
+      // cellule (voir mdCell), pas un délimiteur de colonne — l'ignorer, sous
+      // peine de compter une colonne de trop dès qu'un nom de fichier en
+      // contient une. L'indexation par regex reste en unités UTF-16, comme
+      // String.length utilisé pour le padding : cohérent même avec un émoji.
+      const pipePositions = (line) => {
+        const positions = [];
+        for (const m of line.matchAll(/(?<!\\)\|/g)) positions.push(m.index);
+        return positions;
+      };
+      const reference = pipePositions(lines[0]);
+      for (const line of lines) {
+        assert.deepStrictEqual(pipePositions(line), reference, `désaligné : ${line}`);
+      }
+    }
   });
 
   test('un rapport sans alerte le dit', () => {
