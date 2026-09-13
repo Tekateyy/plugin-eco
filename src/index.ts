@@ -20,13 +20,14 @@
  */
 
 export { initParser, parse, parseWith } from './parser';
-export { collectFindings } from './rules';
+export { collectFindings, filterDisabled } from './rules';
 export { letterFor, computeScore, aggregateScore, scoreSummary } from './scoring';
 export { inferContext } from './context';
 export type { ContextResult } from './context';
 export {
   LANGUAGES,
   RULE_CONTEXTS,
+  ALL_RULE_IDS,
   ruleAppliesIn,
   specFor,
   specForPath,

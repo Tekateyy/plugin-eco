@@ -70,6 +70,20 @@ différents.
 Une règle restreinte à un côté ne se déclenche **jamais** sur un fichier dont le
 contexte est indéterminé : sans certitude, le plugin se tait.
 
+### Désactiver une règle
+
+Chaque règle a un identifiant stable (`nested-loops`, `sql-without-limit`…),
+listé par `plugin-eco --list-rules`. Une règle qui ne convient pas à un projet
+se désactive sans y toucher :
+
+- **Dans l'éditeur**, via le réglage `plugin-eco.disabledRules` (liste
+  d'identifiants) dans les paramètres VSCode.
+- **En CI**, via `--ignore-rule <id>` sur le CLI, répétable.
+
+Les deux mécanismes filtrent après coup, sur le même résultat que la règle
+active aurait produit ailleurs : le score et l'étendue affichés tiennent compte
+de la désactivation, dans l'éditeur comme en pipeline.
+
 Le score part de 100, chaque détection retranche sa pénalité, et le reste donne
 la lettre : **A** ≥ 90, **B** ≥ 75, **C** ≥ 55, **D** ≥ 35, **E** en dessous.
 
@@ -116,6 +130,7 @@ npx plugin-eco --min C src/
 |---|---|
 | `--format <text\|json>` | sortie lisible ou exploitable par un script |
 | `--min <A..E>` | note minimale acceptée |
+| `--ignore-rule <id>` | ignore cette règle, répétable — voir `--list-rules` |
 | code de sortie | `0` conforme · `1` sous le seuil · `2` erreur d'utilisation |
 
 Les positions sont rendues au format `fichier:ligne:colonne`, reconnu par la
@@ -183,6 +198,13 @@ fichier tourne réellement des deux côtés.
 `typescript` pour les `.ts` : elle lit l'assertion `<Type>valeur` comme une
 ouverture JSX et perd la suite du fichier. Mesuré plutôt que supposé — un `.ts`
 contenant une telle assertion voyait ses trois boucles disparaître.
+
+**Désactiver une règle est un réglage, pas un commentaire dans le code ni une
+quick fix.** Une entrée dans `disabledRules` (éditeur) ou `--ignore-rule` (CLI)
+suffit à documenter et à appliquer le choix sans toucher aux fichiers analysés.
+Un commentaire d'échappement (`// eco-ignore`) ou une quick fix qui l'insère
+automatiquement demanderaient un mécanisme par ligne, pas seulement par règle —
+à envisager si la désactivation par projet entier se révèle trop grossière.
 
 **Les grammaires WASM sont copiées dans `out/` au build.** Une extension
 installée n'a pas les `node_modules` de développement sous la main : le script

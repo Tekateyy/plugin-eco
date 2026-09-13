@@ -12,11 +12,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { initParser, parseWith } from './parser';
-import { collectFindings } from './rules';
+import { collectFindings, filterDisabled } from './rules';
 import { computeScore, aggregateScore } from './scoring';
 import { inferContext } from './context';
-import { EXCLUDED_DIRS, specForPath } from './languages';
-import { FileResult, Score, WorkspaceReport } from './types';
+import { ALL_RULE_IDS, EXCLUDED_DIRS, RULE_CONTEXTS, specForPath } from './languages';
+import { FileResult, RuleId, Score, WorkspaceReport } from './types';
 
 const LETTERS: Score['letter'][] = ['A', 'B', 'C', 'D', 'E'];
 
@@ -25,6 +25,10 @@ export interface CliOptions {
   format: 'text' | 'json';
   /** Note minimale acceptée ; en dessous, le processus sort en échec. */
   min?: Score['letter'];
+  /** Règles à ne jamais signaler (`--ignore-rule`, répétable). */
+  ignoreRules: RuleId[];
+  /** `--list-rules` : affiche les règles disponibles et quitte sans analyser. */
+  listRules: boolean;
   help: boolean;
 }
 
@@ -34,9 +38,11 @@ Analyse la consommation énergétique estimée du code Java, JavaScript,
 TypeScript et Python, et rend une étiquette A–E inspirée du DPE.
 
 Options
-  --format <text|json>   Format de sortie (défaut : text)
-  --min <A|B|C|D|E>      Note minimale acceptée ; en dessous, sortie en échec
-  -h, --help             Affiche cette aide
+  --format <text|json>     Format de sortie (défaut : text)
+  --min <A|B|C|D|E>        Note minimale acceptée ; en dessous, sortie en échec
+  --ignore-rule <id>       Ignore cette règle (répétable) ; voir --list-rules
+  --list-rules             Liste les identifiants de règle disponibles et quitte
+  -h, --help               Affiche cette aide
 
 Chemins
   Fichiers ou dossiers à analyser. Défaut : le dossier courant.
@@ -48,20 +54,33 @@ Codes de sortie
   2  erreur d'utilisation ou d'exécution
 
 Exemple
-  plugin-eco --min C --format json src/ > rapport.json`;
+  plugin-eco --min C --ignore-rule sql-without-limit --format json src/ > rapport.json`;
+
+/** Rendu de `--list-rules` : un identifiant par ligne, avec son contexte d'application. */
+export function renderRuleList(): string {
+  const lines = ['Règles disponibles :', ''];
+  for (const id of ALL_RULE_IDS) {
+    const scope = RULE_CONTEXTS[id];
+    const label = scope === 'any' ? 'partout' : scope.join('/');
+    lines.push(`  ${id.padEnd(28)} ${label}`);
+  }
+  return lines.join('\n');
+}
 
 // ---------------------------------------------------------------------------
 // Analyse des arguments
 // ---------------------------------------------------------------------------
 
 export function parseArgs(argv: string[]): CliOptions {
-  const options: CliOptions = { paths: [], format: 'text', help: false };
+  const options: CliOptions = { paths: [], format: 'text', ignoreRules: [], listRules: false, help: false };
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
 
     if (arg === '-h' || arg === '--help') {
       options.help = true;
+    } else if (arg === '--list-rules') {
+      options.listRules = true;
     } else if (arg === '--format') {
       const value = argv[++i];
       if (value !== 'text' && value !== 'json') {
@@ -74,6 +93,14 @@ export function parseArgs(argv: string[]): CliOptions {
         throw new Error(`Note minimale invalide : ${argv[i] ?? '(manquante)'}. Attendu : A, B, C, D ou E.`);
       }
       options.min = value;
+    } else if (arg === '--ignore-rule') {
+      const value = argv[++i] as RuleId | undefined;
+      if (!value || !ALL_RULE_IDS.includes(value)) {
+        throw new Error(
+          `Règle inconnue : ${value ?? '(manquante)'}. Attendu l'un de : ${ALL_RULE_IDS.join(', ')}.`
+        );
+      }
+      options.ignoreRules.push(value);
     } else if (arg.startsWith('-')) {
       throw new Error(`Option inconnue : ${arg}`);
     } else {
@@ -120,7 +147,11 @@ export function collectPaths(target: string): string[] {
 // Analyse
 // ---------------------------------------------------------------------------
 
-export async function analyze(files: string[], baseDir: string): Promise<WorkspaceReport> {
+export async function analyze(
+  files: string[],
+  baseDir: string,
+  ignoreRules: RuleId[] = []
+): Promise<WorkspaceReport> {
   // La racine de l'extension contient out/wasm/, où vivent les grammaires.
   await initParser(path.join(__dirname, '..'));
 
@@ -133,7 +164,7 @@ export async function analyze(files: string[], baseDir: string): Promise<Workspa
     const code = fs.readFileSync(file, 'utf8');
     const tree = parseWith(code, spec);
     const { context } = inferContext(tree.rootNode, spec);
-    const findings = collectFindings(tree.rootNode, spec, context);
+    const findings = filterDisabled(collectFindings(tree.rootNode, spec, context), ignoreRules);
 
     results.push({
       uri: file,
@@ -181,7 +212,7 @@ export function renderText(report: WorkspaceReport): string {
       // et reconnu par les annotateurs de CI.
       lines.push(
         `        ${file.fileName}:${finding.startLine + 1}:${finding.startChar + 1}  ` +
-        `[${finding.severity}] ${finding.message.split(' — ')[0]}`
+        `[${finding.severity}] (${finding.ruleId}) ${finding.message.split(' — ')[0]}`
       );
     }
   }
@@ -211,6 +242,11 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
 
+  if (options.listRules) {
+    process.stdout.write(`${renderRuleList()}\n`);
+    return 0;
+  }
+
   let files: string[];
   try {
     files = options.paths.flatMap(collectPaths);
@@ -228,7 +264,7 @@ export async function main(argv: string[]): Promise<number> {
 
   let report: WorkspaceReport;
   try {
-    report = await analyze(files, process.cwd());
+    report = await analyze(files, process.cwd(), options.ignoreRules);
   } catch (err) {
     process.stderr.write(`Échec de l'analyse : ${(err as Error).message}\n`);
     return 2;

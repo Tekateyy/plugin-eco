@@ -3,7 +3,8 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { parseArgs, meetsThreshold, collectPaths, renderText, USAGE } = require('../out/cli');
+const { parseArgs, meetsThreshold, collectPaths, renderText, renderRuleList, USAGE } = require('../out/cli');
+const { ALL_RULE_IDS } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'out', 'cli.js');
@@ -57,6 +58,19 @@ describe('parseArgs', () => {
   test('-h et --help sont reconnus', () => {
     assert.ok(parseArgs(['-h']).help);
     assert.ok(parseArgs(['--help']).help);
+  });
+
+  test('--ignore-rule accumule les occurrences répétées', () => {
+    const o = parseArgs(['--ignore-rule', 'nested-loops', '--ignore-rule', 'sql-without-limit']);
+    assert.deepStrictEqual(o.ignoreRules, ['nested-loops', 'sql-without-limit']);
+  });
+
+  test('--ignore-rule refuse un identifiant inconnu', () => {
+    assert.throws(() => parseArgs(['--ignore-rule', 'n-importe-quoi']), /Règle inconnue/);
+  });
+
+  test('--list-rules est reconnu', () => {
+    assert.ok(parseArgs(['--list-rules']).listRules);
   });
 });
 
@@ -118,7 +132,7 @@ describe('renderText', () => {
       {
         uri: 'a.ts', fileName: 'src/a.ts',
         score: { letter: 'C', value: 70, findingCount: { high: 1, medium: 1, low: 0 } },
-        findings: [{ startLine: 4, startChar: 2, endLine: 4, endChar: 9, severity: 'high', weight: 12, message: 'Boucle imbriquée — détail' }],
+        findings: [{ startLine: 4, startChar: 2, endLine: 4, endChar: 9, severity: 'high', weight: 12, ruleId: 'nested-loops', message: 'Boucle imbriquée — détail' }],
       },
       {
         uri: 'b.ts', fileName: 'src/b.ts',
@@ -143,6 +157,19 @@ describe('renderText', () => {
   test('un rapport sans alerte le dit', () => {
     const vide = { ...report, files: [report.files[1]], filesWithFindings: 0 };
     assert.match(renderText(vide), /Aucune alerte/);
+  });
+
+  test('le ruleId de chaque finding est affiché', () => {
+    assert.match(renderText(report), /\(nested-loops\)/);
+  });
+});
+
+describe('renderRuleList', () => {
+  test('liste chaque règle avec son contexte d\'application', () => {
+    const out = renderRuleList();
+    for (const id of ALL_RULE_IDS) assert.match(out, new RegExp(id));
+    assert.match(out, /polling-interval\s+client/);
+    assert.match(out, /nested-loops\s+partout/);
   });
 });
 
@@ -198,6 +225,30 @@ describe('exécution réelle du binaire', () => {
     const r = run(['.github']);
     assert.strictEqual(r.code, 0);
     assert.match(r.stderr, /Aucun fichier analysable/);
+  });
+
+  test('--list-rules affiche les règles et quitte sans analyser', () => {
+    const r = run(['--list-rules']);
+    assert.strictEqual(r.code, 0);
+    assert.match(r.stdout, /Règles disponibles/);
+    assert.match(r.stdout, /nested-loops/);
+  });
+
+  test('--ignore-rule retire les findings de cette règle et recalcule le score', () => {
+    // samples/Example.java : E 28/100 (voir sample.test.js). En retirant les
+    // deux règles hautes nested-loops et sql-without-limit, il ne reste que
+    // 2 hautes (24) + 3 moyennes (21) = 45 de pénalité, donc C 55/100.
+    const r = run(['--ignore-rule', 'nested-loops', '--ignore-rule', 'sql-without-limit', 'samples/Example.java']);
+    assert.strictEqual(r.code, 0);
+    assert.match(r.stdout, /Éco : C 55\/100/);
+    assert.ok(!r.stdout.includes('imbriquée'));
+    assert.ok(!r.stdout.includes('LIMIT'));
+  });
+
+  test('--ignore-rule avec un identifiant inconnu sort en code 2', () => {
+    const r = run(['--ignore-rule', 'n-importe-quoi', 'samples/Example.java']);
+    assert.strictEqual(r.code, 2);
+    assert.match(r.stderr, /Règle inconnue/);
   });
 
   test('le CLI ne charge jamais le code d\'extension', () => {

@@ -1,12 +1,17 @@
 import * as vscode from 'vscode';
 import { initParser, parse } from './parser';
-import { collectFindings } from './rules';
+import { collectFindings, filterDisabled } from './rules';
 import { computeScore, scoreSummary } from './scoring';
 import { buildWebviewHtml, buildWorkspaceHtml } from './webview';
 import { analyzeWorkspace } from './workspace';
 import { isSupported, specFor } from './languages';
 import { inferContext } from './context';
-import { ExecutionContext, Finding, Score } from './types';
+import { ExecutionContext, Finding, RuleId, Score } from './types';
+
+/** Règles désactivées par l'utilisateur (`plugin-eco.disabledRules`). */
+function disabledRules(): RuleId[] {
+  return vscode.workspace.getConfiguration('plugin-eco').get<RuleId[]>('disabledRules', []);
+}
 
 let diagnosticCollection: vscode.DiagnosticCollection;
 let statusBarItem: vscode.StatusBarItem;
@@ -136,7 +141,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
   try {
     const tree = parse(document.getText(), document.languageId);
     const { context, clientSignals, serverSignals } = inferContext(tree.rootNode, spec);
-    const findings = collectFindings(tree.rootNode, spec, context);
+    const findings = filterDisabled(collectFindings(tree.rootNode, spec, context), disabledRules());
     const score = computeScore(findings);
 
     // Un arbre incomplet donne une analyse incomplète : sans ce signal, un
@@ -158,6 +163,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
         : vscode.DiagnosticSeverity.Information;
       const diag = new vscode.Diagnostic(range, `⚡ ${f.message}`, severity);
       diag.source = 'Plugin Eco';
+      diag.code = f.ruleId;
       return diag;
     }));
 
