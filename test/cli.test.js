@@ -3,7 +3,13 @@ const assert = require('node:assert');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { parseArgs, meetsThreshold, collectPaths, renderText, renderRuleList, USAGE } = require('../out/cli');
+const fs = require('node:fs');
+const os = require('node:os');
+
+const {
+  parseArgs, meetsThreshold, collectPaths,
+  renderText, renderRuleList, renderGithubCommands, renderMarkdown, USAGE,
+} = require('../out/cli');
 const { ALL_RULE_IDS } = require('../out/languages');
 
 const ROOT = path.join(__dirname, '..');
@@ -15,9 +21,15 @@ const CLI = path.join(ROOT, 'out', 'cli.js');
  * `spawnSync` plutôt que `execFileSync` : ce dernier ne rend `stderr` que
  * lorsqu'il lève, donc les avertissements d'une exécution réussie étaient
  * invisibles au test.
+ *
+ * `env` s'ajoute à l'environnement courant ; `GITHUB_STEP_SUMMARY` en est
+ * retiré par défaut pour que la suite ne dépende pas de là où elle tourne.
  */
-function run(args) {
-  const r = spawnSync(process.execPath, [CLI, ...args], { cwd: ROOT, encoding: 'utf8' });
+function run(args, env = {}) {
+  const { GITHUB_STEP_SUMMARY: _ignored, ...base } = process.env;
+  const r = spawnSync(process.execPath, [CLI, ...args], {
+    cwd: ROOT, encoding: 'utf8', env: { ...base, ...env },
+  });
   return { code: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
 }
 
@@ -37,6 +49,10 @@ describe('parseArgs', () => {
 
   test('--format json', () => {
     assert.strictEqual(parseArgs(['--format', 'json']).format, 'json');
+  });
+
+  test('--format github', () => {
+    assert.strictEqual(parseArgs(['--format', 'github']).format, 'github');
   });
 
   test('--min accepte la minuscule', () => {
@@ -164,6 +180,128 @@ describe('renderText', () => {
   });
 });
 
+describe('format github — renderGithubCommands', () => {
+  const finding = (over) => ({
+    startLine: 4, startChar: 2, endLine: 4, endChar: 9,
+    severity: 'high', weight: 12, ruleId: 'nested-loops', message: 'Boucle imbriquée — détail',
+    ...over,
+  });
+  const report = (files) => ({
+    global: { letter: 'C', value: 70, findingCount: { high: 1, medium: 0, low: 0 } },
+    filesWithFindings: files.length, scannedAt: '', files,
+  });
+  const file = (fileName, findings) => ({
+    uri: fileName, fileName, findings,
+    score: { letter: 'C', value: 70, findingCount: { high: 1, medium: 0, low: 0 } },
+  });
+
+  test('une commande par alerte, position en base 1, règle en titre', () => {
+    const out = renderGithubCommands(report([file('src/a.ts', [finding({})])]));
+    assert.strictEqual(
+      out,
+      '::error file=src/a.ts,line=5,col=3,title=nested-loops::Boucle imbriquée — détail'
+    );
+  });
+
+  test('la sévérité donne le niveau : haute → error, moyenne → warning, faible → notice', () => {
+    const out = renderGithubCommands(report([file('a', [
+      finding({ severity: 'high' }), finding({ severity: 'medium' }), finding({ severity: 'low' }),
+    ])]));
+    assert.deepStrictEqual(out.split('\n').map(l => l.split(' ')[0]), ['::error', '::warning', '::notice']);
+  });
+
+  test('les délimiteurs sont échappés dans les propriétés et le message', () => {
+    // `:` et `,` dans un nom de fichier casseraient la liste de propriétés ;
+    // un retour à la ligne dans le message terminerait la commande.
+    const out = renderGithubCommands(report([file('C:/a,b.ts', [
+      finding({ message: 'ligne 1\nligne 2 à 100%' }),
+    ])]));
+    assert.match(out, /file=C%3A\/a%2Cb\.ts,/);
+    assert.match(out, /::ligne 1%0Aligne 2 à 100%25$/);
+    assert.strictEqual(out.split('\n').length, 1);
+  });
+
+  test('le verdict sous le seuil devient une erreur en tête', () => {
+    const out = renderGithubCommands(report([file('a', [finding({})])]), 'A');
+    assert.ok(out.startsWith('::error title=Plugin Eco::Note C en dessous du seuil A.\n'));
+  });
+
+  test('sans alerte ni seuil manqué, rien', () => {
+    assert.strictEqual(renderGithubCommands(report([file('a', [])])), '');
+  });
+});
+
+describe('format github — renderMarkdown', () => {
+  const report = {
+    global: { letter: 'D', value: 40, findingCount: { high: 2, medium: 1, low: 0 } },
+    filesWithFindings: 1, scannedAt: '',
+    files: [
+      {
+        uri: 'a', fileName: 'src/a|b.ts',
+        score: { letter: 'D', value: 40, findingCount: { high: 2, medium: 1, low: 0 } },
+        findings: [{
+          startLine: 4, startChar: 2, endLine: 4, endChar: 9, severity: 'high', weight: 12,
+          ruleId: 'nested-loops', message: 'Boucle imbriquée — détail',
+        }],
+      },
+      {
+        uri: 'b', fileName: 'src/sain.ts',
+        score: { letter: 'A', value: 100, findingCount: { high: 0, medium: 0, low: 0 } },
+        findings: [],
+      },
+    ],
+  };
+
+  test('l\'étiquette est en titre, avec son icône et son libellé', () => {
+    assert.match(renderMarkdown(report), /^## 🟧 Éco : D 40\/100 — Faible/);
+  });
+
+  test('les fichiers sains ne sont pas listés, la barre verticale est échappée', () => {
+    const md = renderMarkdown(report);
+    assert.ok(!md.includes('src/sain.ts'));
+    assert.match(md, /\| `src\/a\\\|b\.ts`\s*\| 🟧 D 40\s*\| 1\s*\|/);
+  });
+
+  test('le détail est replié et porte la règle', () => {
+    const md = renderMarkdown(report);
+    assert.match(md, /<details><summary>Détail des alertes<\/summary>/);
+    assert.match(md, /\| 5\s*\| high\s*\| `nested-loops`\s*\| Boucle imbriquée\s*\|/);
+  });
+
+  test('les colonnes de chaque tableau sont alignées — chaque | tombe à la même position', () => {
+    // Un tableau Markdown reste valide sans ça, mais le résumé part aussi sur
+    // stdout en texte brut : l'alignement est ce qui le rend lisible là.
+    const tables = renderMarkdown(report)
+      .split('\n\n')
+      .map(block => block.split('\n').filter(l => l.startsWith('|')))
+      .filter(lines => lines.length > 1);
+
+    assert.ok(tables.length >= 2, 'les deux tableaux attendus sont présents');
+    for (const lines of tables) {
+      // Un `|` précédé d'un `\` est une barre échappée à l'intérieur d'une
+      // cellule (voir mdCell), pas un délimiteur de colonne — l'ignorer, sous
+      // peine de compter une colonne de trop dès qu'un nom de fichier en
+      // contient une. L'indexation par regex reste en unités UTF-16, comme
+      // String.length utilisé pour le padding : cohérent même avec un émoji.
+      const pipePositions = (line) => {
+        const positions = [];
+        for (const m of line.matchAll(/(?<!\\)\|/g)) positions.push(m.index);
+        return positions;
+      };
+      const reference = pipePositions(lines[0]);
+      for (const line of lines) {
+        assert.deepStrictEqual(pipePositions(line), reference, `désaligné : ${line}`);
+      }
+    }
+  });
+
+  test('un rapport sans alerte le dit', () => {
+    const vide = { ...report, files: [report.files[1]], filesWithFindings: 0 };
+    assert.match(renderMarkdown(vide), /Aucune alerte/);
+    assert.ok(!renderMarkdown(vide).includes('<details>'));
+  });
+});
+
 describe('renderRuleList', () => {
   test('liste chaque règle avec son contexte d\'application', () => {
     const out = renderRuleList();
@@ -225,6 +363,32 @@ describe('exécution réelle du binaire', () => {
     const r = run(['.github']);
     assert.strictEqual(r.code, 0);
     assert.match(r.stderr, /Aucun fichier analysable/);
+  });
+
+  test('--format github émet les annotations puis le résumé sur stdout', () => {
+    const r = run(['--format', 'github', 'samples/Example.java']);
+    assert.strictEqual(r.code, 0);
+    assert.match(r.stdout, /^::error file=samples\/Example\.java,line=21,col=13,title=nested-loops::/m);
+    assert.match(r.stdout, /^## 🟥 Éco : E 28\/100/m);
+  });
+
+  test('--format github ajoute le résumé à GITHUB_STEP_SUMMARY quand la variable existe', () => {
+    const summary = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'eco-')), 'summary.md');
+    fs.writeFileSync(summary, 'déjà là\n');
+    const r = run(['--format', 'github', 'samples/example.ts'], { GITHUB_STEP_SUMMARY: summary });
+    assert.strictEqual(r.code, 0);
+    const written = fs.readFileSync(summary, 'utf8');
+    // Ajouté, pas écrasé : d'autres steps peuvent avoir écrit avant.
+    assert.ok(written.startsWith('déjà là\n'));
+    assert.match(written, /## 🟨 Éco : C 73\/100/);
+    assert.ok(!written.includes('::error'), 'les commandes ne vont pas dans le résumé');
+  });
+
+  test('--format github sous le seuil : erreur de verdict en tête et code 1', () => {
+    const r = run(['--format', 'github', '--min', 'A', 'samples/example.ts']);
+    assert.strictEqual(r.code, 1);
+    assert.ok(r.stdout.startsWith('::error title=Plugin Eco::Note C en dessous du seuil A.\n'));
+    assert.match(r.stderr, /en dessous du seuil A/);
   });
 
   test('--list-rules affiche les règles et quitte sans analyser', () => {

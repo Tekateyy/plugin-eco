@@ -128,7 +128,7 @@ npx plugin-eco --min C src/
 
 | | |
 |---|---|
-| `--format <text\|json>` | sortie lisible ou exploitable par un script |
+| `--format <text\|json\|github>` | sortie lisible, exploitable par un script, ou annotations GitHub |
 | `--min <A..E>` | note minimale acceptée |
 | `--ignore-rule <id>` | ignore cette règle, répétable — voir `--list-rules` |
 | code de sortie | `0` conforme · `1` sous le seuil · `2` erreur d'utilisation |
@@ -141,10 +141,37 @@ plupart des annotateurs de CI et cliquable dans un terminal.
   run: npx plugin-eco --min C src/
 ```
 
-L'analyse est strictement la même que dans l'éditeur : le CLI et l'extension
-partagent le parseur, les règles, l'inférence de contexte et le calcul de score.
-Un verdict qui différerait entre l'IDE et la pipeline ruinerait la confiance dans
-les deux.
+### Sur GitHub Actions : `--format github`
+
+Un `--min C` qui échoue en `text` fait un step rouge, mais il faut ouvrir le log
+pour savoir pourquoi. `--format github` rend le même verdict visible sans cette
+étape :
+
+```yaml
+- name: Green check
+  run: npx plugin-eco --min C --format github src/
+```
+
+- Chaque alerte devient une annotation ancrée sur sa ligne — visible directement
+  dans l'onglet *Files changed* de la PR et dans *Checks*. La sévérité fixe le
+  niveau (`::error` haute, `::warning` moyenne, `::notice` faible) ; GitHub
+  n'en affiche que 10 par niveau et par step, les suivantes sont tronquées —
+  les pires fichiers passent donc en premier, comme dans les autres formats.
+- Un résumé Markdown — étiquette, tableau des fichiers concernés, détail replié
+  par alerte — est écrit sur la page du run (`$GITHUB_STEP_SUMMARY`), sans
+  cette limite.
+- Si le seuil `--min` n'est pas atteint, le verdict lui-même devient une
+  annotation d'erreur, en plus du message habituel sur stderr et du code de
+  sortie 1.
+
+Hors GitHub Actions (`$GITHUB_STEP_SUMMARY` absent), seules les commandes et le
+Markdown partent sur stdout — pratique pour vérifier le rendu en local avant de
+le pousser.
+
+L'analyse est strictement la même que dans l'éditeur, quel que soit le format :
+le CLI et l'extension partagent le parseur, les règles, l'inférence de contexte
+et le calcul de score. Un verdict qui différerait entre l'IDE et la pipeline
+ruinerait la confiance dans les deux.
 
 Le moteur s'utilise aussi comme bibliothèque, pour bâtir un rapport sur mesure :
 
@@ -205,6 +232,14 @@ suffit à documenter et à appliquer le choix sans toucher aux fichiers analysé
 Un commentaire d'échappement (`// eco-ignore`) ou une quick fix qui l'insère
 automatiquement demanderaient un mécanisme par ligne, pas seulement par règle —
 à envisager si la désactivation par projet entier se révèle trop grossière.
+
+**Des workflow commands GitHub, pas du SARIF.** L'onglet *Security / Code
+scanning* attend un upload SARIF, gratuit seulement sur dépôt public et qui
+demande une action dédiée (`upload-sarif`) en plus du CLI. Les *workflow
+commands* (`::error file=…`) tiennent en une ligne par alerte sur stdout, ne
+demandent aucune action tierce, et couvrent le besoin réel — voir l'annotation
+sur la ligne fautive. À reconsidérer si le suivi dans le temps (alertes
+ouvertes/résolues d'un run à l'autre) devient un besoin démontré.
 
 **Les grammaires WASM sont copiées dans `out/` au build.** Une extension
 installée n'a pas les `node_modules` de développement sous la main : le script
