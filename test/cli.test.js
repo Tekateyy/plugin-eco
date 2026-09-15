@@ -9,6 +9,7 @@ const os = require('node:os');
 const {
   parseArgs, meetsThreshold, collectPaths,
   renderText, renderRuleList, renderGithubCommands, renderMarkdown, USAGE,
+  parseMeasureArgs,
 } = require('../out/cli');
 const { ALL_RULE_IDS } = require('../out/languages');
 
@@ -122,7 +123,10 @@ describe('collectPaths', () => {
   test('un dossier est parcouru récursivement', () => {
     const found = collectPaths(path.join(ROOT, 'src'));
     assert.ok(found.length >= 8, `attendu au moins 8 fichiers, obtenu ${found.length}`);
-    assert.ok(found.every(f => f.endsWith('.ts')));
+    // src/probe.js est en JS pur, volontairement (voir measure.ts) : c'est le
+    // seul fichier non-.ts du dossier.
+    const autres = found.filter(f => !f.endsWith('.ts'));
+    assert.deepStrictEqual(autres.map(f => path.basename(f)), ['probe.js']);
   });
 
   test('les dossiers exclus ne sont pas parcourus', () => {
@@ -420,5 +424,88 @@ describe('exécution réelle du binaire', () => {
     // Ce test échoue donc si quelqu'un branche cli.ts sur extension.ts.
     assert.ok(!USAGE.includes('vscode'));
     assert.strictEqual(run(['samples/example.ts']).code, 0);
+  });
+});
+
+// --- Sous-commande measure --------------------------------------------------
+
+describe('parseMeasureArgs', () => {
+  test('un script seul suffit, avec des défauts sensés', () => {
+    const o = parseMeasureArgs(['bench.js']);
+    assert.strictEqual(o.script, 'bench.js');
+    assert.deepStrictEqual(o.scriptArgs, []);
+    assert.strictEqual(o.format, 'text');
+    assert.strictEqual(o.tdpWatts, 65);
+    assert.ok(o.cores >= 1);
+    assert.strictEqual(o.gCO2PerKWh, 52);
+  });
+
+  test('-- sépare les arguments du script de ceux du CLI', () => {
+    const o = parseMeasureArgs(['bench.js', '--', '--iterations', '10']);
+    assert.strictEqual(o.script, 'bench.js');
+    assert.deepStrictEqual(o.scriptArgs, ['--iterations', '10']);
+  });
+
+  test('--tdp, --cores et --carbon sont pris en compte', () => {
+    const o = parseMeasureArgs(['--tdp', '45', '--cores', '4', '--carbon', '475', 'bench.js']);
+    assert.strictEqual(o.tdpWatts, 45);
+    assert.strictEqual(o.cores, 4);
+    assert.strictEqual(o.gCO2PerKWh, 475);
+  });
+
+  test('un TDP négatif ou non numérique est refusé', () => {
+    assert.throws(() => parseMeasureArgs(['--tdp', '-1', 'bench.js']), /TDP invalide/);
+    assert.throws(() => parseMeasureArgs(['--tdp', 'beaucoup', 'bench.js']), /TDP invalide/);
+  });
+
+  test('un format inconnu est refusé', () => {
+    assert.throws(() => parseMeasureArgs(['--format', 'xml', 'bench.js']), /Format inconnu/);
+  });
+});
+
+describe('measure : exécution réelle du binaire', () => {
+  const BENCH = path.join('fixtures', 'bench.js');
+
+  test('--help sort en succès et affiche l\'usage de la sous-commande', () => {
+    const r = run(['measure', '--help']);
+    assert.strictEqual(r.code, 0);
+    assert.ok(r.stdout.startsWith('Usage : plugin-eco measure'));
+  });
+
+  test('sans script, sort en code 2', () => {
+    const r = run(['measure']);
+    assert.strictEqual(r.code, 2);
+    assert.match(r.stderr, /Chemin de script manquant/);
+  });
+
+  test('mesure un vrai script et rend un rapport texte lisible', () => {
+    const r = run(['measure', BENCH]);
+    assert.strictEqual(r.code, 0);
+    assert.match(r.stdout, /Mesure de/);
+    assert.match(r.stdout, /CPU\s+[\d,.]+ s/);
+    assert.match(r.stdout, /Énergie\s+≈ [\d,.]+ Wh/);
+    assert.match(r.stdout, /Hypothèses/);
+  });
+
+  test('--format json rend un objet exploitable', () => {
+    const r = run(['measure', '--format', 'json', BENCH]);
+    assert.strictEqual(r.code, 0);
+    const parsed = JSON.parse(r.stdout);
+    assert.ok(parsed.raw.cpuUserUs > 0);
+    assert.ok(parsed.wh > 0);
+    assert.ok(parsed.hypotheses.length > 0);
+  });
+
+  test('le code de sortie reflète celui du script mesuré', () => {
+    const failing = path.join('fixtures', 'measure-fail.js');
+    const r = run(['measure', failing]);
+    assert.strictEqual(r.code, 3);
+  });
+
+  test('--tdp change l\'estimation d\'énergie', () => {
+    const bas = JSON.parse(run(['measure', '--format', 'json', '--tdp', '10', BENCH]).stdout);
+    const haut = JSON.parse(run(['measure', '--format', 'json', '--tdp', '200', BENCH]).stdout);
+    assert.ok(haut.wh > bas.wh);
+    assert.ok(bas.raw.cpuUserUs > 0 && haut.raw.cpuUserUs > 0);
   });
 });

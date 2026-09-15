@@ -5,6 +5,7 @@ CLAUDE.md
 .gitignore
 scripts/**
 samples/**
+fixtures/**
 src/**
 test/**
 tsconfig.json

@@ -8,6 +8,7 @@
 src/
 test/
 samples/
+fixtures/
 scripts/
 .github/
 .vscode/
