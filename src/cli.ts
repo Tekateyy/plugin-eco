@@ -10,6 +10,7 @@
  */
 
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { initParser, parseWith } from './parser';
 import { collectFindings, filterDisabled } from './rules';
@@ -17,6 +18,10 @@ import { computeScore, aggregateScore, scoreSummary } from './scoring';
 import { inferContext } from './context';
 import { ALL_RULE_IDS, EXCLUDED_DIRS, RULE_CONTEXTS, specForPath } from './languages';
 import { FileResult, Finding, RuleId, Score, WorkspaceReport } from './types';
+import {
+  runMeasured, estimate, DEFAULT_TDP_WATTS, DEFAULT_WATTS_PER_GB, DEFAULT_GCO2_PER_KWH,
+  EnergyEstimate, MeasureResult,
+} from './measure';
 
 const LETTERS: Score['letter'][] = ['A', 'B', 'C', 'D', 'E'];
 const FORMATS = ['text', 'json', 'github'] as const;
@@ -58,7 +63,13 @@ Codes de sortie
   2  erreur d'utilisation ou d'exécution
 
 Exemple
-  plugin-eco --min C --ignore-rule sql-without-limit --format json src/ > rapport.json`;
+  plugin-eco --min C --ignore-rule sql-without-limit --format json src/ > rapport.json
+
+Sous-commande
+  plugin-eco measure <script>
+                           Exécute un script Node et mesure sa consommation
+                           réelle (CPU, RAM, durée) au lieu de l'estimer.
+                           Voir : plugin-eco measure --help`;
 
 /** Rendu de `--list-rules` : un identifiant par ligne, avec son contexte d'application. */
 export function renderRuleList(): string {
@@ -363,10 +374,179 @@ function appendStepSummary(markdown: string): void {
 }
 
 // ---------------------------------------------------------------------------
+// Sous-commande « measure » — mesure runtime (Phase 2, prototype Node.js)
+// ---------------------------------------------------------------------------
+//
+// Chantier séparé de l'analyse statique ci-dessus : celle-ci ne lit jamais le
+// code, celle-là l'exécute — sur commande explicite uniquement, jamais à la
+// sauvegarde. Un programme qui ne se termine pas de lui-même (serveur,
+// watcher) n'entre pas dans ce prototype.
+
+const MEASURE_FORMATS = ['text', 'json'] as const;
+
+export interface MeasureCliOptions {
+  script?: string;
+  /** Arguments passés tels quels au script mesuré. */
+  scriptArgs: string[];
+  format: (typeof MEASURE_FORMATS)[number];
+  tdpWatts: number;
+  cores: number;
+  gCO2PerKWh: number;
+  help: boolean;
+}
+
+export const MEASURE_USAGE = `Usage : plugin-eco measure <script> [-- arguments-du-script...]
+
+Exécute <script> sous Node et mesure sa consommation réelle — CPU, RAM,
+durée — puis l'estime en Wh et gCO₂. Complète l'estimation statique : celle-ci
+reste l'étiquette A–E comparable entre fichiers, la mesure est un axe à part,
+avec ses hypothèses de conversion affichées à côté du résultat.
+
+Options
+  --tdp <watts>            TDP du processeur (défaut : ${DEFAULT_TDP_WATTS} W)
+  --cores <n>              Cœurs sur lesquels le TDP se répartit (défaut : détecté)
+  --carbon <gCO2/kWh>      Intensité carbone du réseau (défaut : ${DEFAULT_GCO2_PER_KWH}, France)
+  --format <text|json>     Format de sortie (défaut : text)
+  -h, --help               Affiche cette aide
+
+Le script mesuré doit se terminer de lui-même ; un serveur ou un watcher n'entre
+pas dans ce prototype. Sa sortie standard est héritée telle quelle, et le
+rapport de mesure s'y ajoute ensuite : avec --format json, un script qui écrit
+lui-même sur stdout casse le JSON produit.
+
+Exemple
+  plugin-eco measure mon-script.js -- --iterations 100000`;
+
+export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
+  const options: MeasureCliOptions = {
+    scriptArgs: [],
+    format: 'text',
+    tdpWatts: DEFAULT_TDP_WATTS,
+    cores: os.cpus().length || 1,
+    gCO2PerKWh: DEFAULT_GCO2_PER_KWH,
+    help: false,
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+
+    if (arg === '-h' || arg === '--help') {
+      options.help = true;
+    } else if (arg === '--format') {
+      const value = argv[++i] as MeasureCliOptions['format'] | undefined;
+      if (!value || !MEASURE_FORMATS.includes(value)) {
+        throw new Error(`Format inconnu : ${value ?? '(manquant)'}. Attendu : ${MEASURE_FORMATS.join(', ')}.`);
+      }
+      options.format = value;
+    } else if (arg === '--tdp') {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`TDP invalide : ${argv[i] ?? '(manquant)'}. Attendu un nombre positif.`);
+      }
+      options.tdpWatts = value;
+    } else if (arg === '--cores') {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value <= 0) {
+        throw new Error(`Nombre de cœurs invalide : ${argv[i] ?? '(manquant)'}. Attendu un nombre positif.`);
+      }
+      options.cores = value;
+    } else if (arg === '--carbon') {
+      const value = Number(argv[++i]);
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error(`Intensité carbone invalide : ${argv[i] ?? '(manquante)'}. Attendu un nombre positif ou nul.`);
+      }
+      options.gCO2PerKWh = value;
+    } else if (arg === '--') {
+      options.scriptArgs.push(...argv.slice(i + 1));
+      break;
+    } else if (arg.startsWith('-')) {
+      throw new Error(`Option inconnue : ${arg}`);
+    } else if (options.script === undefined) {
+      options.script = arg;
+    } else {
+      options.scriptArgs.push(arg);
+    }
+  }
+
+  return options;
+}
+
+export function renderMeasureText(script: string, result: MeasureResult, est: EnergyEstimate): string {
+  const { raw, exitCode } = result;
+  const cpuUserS = raw.cpuUserUs / 1e6;
+  const cpuSystemS = raw.cpuSystemUs / 1e6;
+  const maxRssMo = raw.maxRssBytes !== null ? (raw.maxRssBytes / 1024 ** 2).toFixed(0) : '?';
+
+  return [
+    `Mesure de ${script}`,
+    `  Sortie     code ${exitCode ?? '?'}`,
+    `  CPU        ${(cpuUserS + cpuSystemS).toFixed(2)} s (user ${cpuUserS.toFixed(2)} · system ${cpuSystemS.toFixed(2)})`,
+    `  Durée      ${(raw.wallMs / 1000).toFixed(2)} s`,
+    `  Mémoire    max ${maxRssMo} Mo`,
+    `  Énergie    ≈ ${est.wh.toFixed(4)} Wh      ≈ ${(est.gCO2 * 1000).toFixed(2)} mg CO₂`,
+    `  Hypothèses ${est.hypotheses}`,
+  ].join('\n');
+}
+
+export function renderMeasureJson(script: string, result: MeasureResult, est: EnergyEstimate): string {
+  return JSON.stringify({ script, ...result, ...est }, null, 2);
+}
+
+export async function runMeasureCommand(argv: string[]): Promise<number> {
+  let options: MeasureCliOptions;
+  try {
+    options = parseMeasureArgs(argv);
+  } catch (err) {
+    process.stderr.write(`${(err as Error).message}\n\n${MEASURE_USAGE}\n`);
+    return 2;
+  }
+
+  if (options.help) {
+    process.stdout.write(`${MEASURE_USAGE}\n`);
+    return 0;
+  }
+
+  if (!options.script) {
+    process.stderr.write(`Chemin de script manquant.\n\n${MEASURE_USAGE}\n`);
+    return 2;
+  }
+
+  let result: MeasureResult;
+  try {
+    result = runMeasured(options.script, { args: options.scriptArgs });
+  } catch (err) {
+    process.stderr.write(`Échec de la mesure : ${(err as Error).message}\n`);
+    return 2;
+  }
+
+  const est = estimate(result.raw, {
+    tdpWatts: options.tdpWatts,
+    cores: options.cores,
+    wattsPerGB: DEFAULT_WATTS_PER_GB,
+    gCO2PerKWh: options.gCO2PerKWh,
+  });
+
+  process.stdout.write(
+    (options.format === 'json'
+      ? renderMeasureJson(options.script, result, est)
+      : renderMeasureText(options.script, result, est)) + '\n'
+  );
+
+  // Le code de sortie reflète celui du script mesuré, pas la réussite de la
+  // mesure elle-même (déjà actée ci-dessus) : un script en échec doit rester
+  // détectable par qui enchaîne `plugin-eco measure` dans un pipeline.
+  return result.exitCode ?? 2;
+}
+
+// ---------------------------------------------------------------------------
 // Point d'entrée
 // ---------------------------------------------------------------------------
 
 export async function main(argv: string[]): Promise<number> {
+  if (argv[0] === 'measure') {
+    return runMeasureCommand(argv.slice(1));
+  }
+
   let options: CliOptions;
   try {
     options = parseArgs(argv);

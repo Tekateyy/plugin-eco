@@ -186,6 +186,34 @@ console.log(computeScore(findings).letter); // 'A' … 'E'
 Ce point d'entrée n'expose que le moteur : le code d'intégration VSCode en est
 absent, et rien n'y importe `vscode`.
 
+## Mesure à l'exécution (prototype)
+
+L'étiquette A–E est une estimation statique. `plugin-eco measure` mesure pour
+de vrai, sur un script Node qui se termine de lui-même — pas un serveur — en
+l'exécutant réellement :
+
+```bash
+npx plugin-eco measure script.js
+```
+
+```
+Mesure de script.js
+  CPU        1.84 s (user 1.71 · system 0.13)
+  Durée      2.02 s
+  Mémoire    max 58 Mo
+  Énergie    ≈ 0.0041 Wh      ≈ 0.21 mg CO₂
+  Hypothèses 8.1 W/cœur (TDP 65 W / 8 cœurs), 0.392 W/Go, 52 gCO₂/kWh
+```
+
+Le CPU et la RAM réels se convertissent en Wh via des coefficients standards
+(modèle Cloud Carbon Footprint), affichés en clair avec le résultat — ce sont
+des hypothèses, pas des mesures, et `--tdp`, `--cores` et `--carbon` les
+ajustent. `--format json` rend la même mesure exploitable par un script.
+
+Prototype volontairement limité : un langage (Node), une seule exécution, sans
+répétition ni moyenne. Étape suivante si le modèle tient : Python et Java,
+selon le même principe (une sonde préchargée dans le processus mesuré).
+
 ## Choix techniques
 
 **Analyse statique d'abord, mesure à l'exécution ensuite.** Un profileur donne
@@ -195,8 +223,16 @@ pour que l'information arrive au moment où le développeur peut encore agir.
 
 **Une lettre plutôt que des watt-heures.** Une estimation en Wh sur du code non
 exécuté serait une fausse précision. La lettre assume ce qu'elle est — un
-classement relatif — et parle immédiatement. Les Wh et le CO₂ viendront avec la
-mesure à l'exécution, où ils seront mesurés plutôt que devinés.
+classement relatif, comparable entre fichiers — et parle immédiatement. Les Wh
+et le CO₂ que rend `plugin-eco measure` sont un axe séparé, mesuré plutôt que
+deviné, et n'entrent délibérément pas dans le calcul de la lettre : les
+mélanger casserait la comparabilité qui fait la valeur de l'étiquette.
+
+**La mesure runtime précharge une sonde, elle n'instrumente pas le code.**
+`node --require probe.js script.js` mesure le processus réel (CPU, RAM, durée)
+sans transformer le script mesuré ni ajouter de dépendance d'exécution.
+Le même principe — sonde préchargée, résultat en JSON — se transposera à Python
+et Java.
 
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`
@@ -249,8 +285,9 @@ installée n'a pas les `node_modules` de développement sous la main : le script
 ## État
 
 Analyse statique de Java, JavaScript, TypeScript et Python, avec un jeu de
-règles web qui distingue le code serveur du code navigateur. La mesure à
-l'exécution (Wh et CO₂) et un portage IntelliJ sont les étapes suivantes.
+règles web qui distingue le code serveur du code navigateur. Mesure à
+l'exécution (Wh et CO₂) en prototype, limitée à Node. Python, Java et le
+portage IntelliJ sont les étapes suivantes.
 
 ## Licence
 

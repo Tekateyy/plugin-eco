@@ -42,7 +42,7 @@ describe('contenu du paquet npm', () => {
   });
 
   test('ni les sources, ni les tests, ni les exemples', () => {
-    for (const prefixe of ['src/', 'test/', 'samples/', 'scripts/']) {
+    for (const prefixe of ['src/', 'test/', 'samples/', 'fixtures/', 'scripts/']) {
       assert.deepStrictEqual(
         files.filter(f => f.startsWith(prefixe)), [],
         `${prefixe} ne doit pas être publié`
@@ -59,7 +59,7 @@ describe('contenu du paquet npm', () => {
       'package.json', 'README.md', 'LICENSE',
       'out/index.js', 'out/index.d.ts',
       'out/cli.js', 'out/rules.js', 'out/scoring.js', 'out/context.js',
-      'out/languages.js', 'out/parser.js',
+      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
       'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
       'out/wasm/tree-sitter-python.wasm',
