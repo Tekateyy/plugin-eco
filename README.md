@@ -234,6 +234,14 @@ sans transformer le script mesuré ni ajouter de dépendance d'exécution.
 Le même principe — sonde préchargée, résultat en JSON — se transposera à Python
 et Java.
 
+**Seul `measure` exécute du code, et seulement sur commande.** L'analyse
+statique ne fait que lire : elle tourne à la frappe, à la sauvegarde, sur tout
+un workspace, sans jamais lancer de processus. `plugin-eco measure` est
+l'unique exception, réservée au CLI : l'extension VSCode et le point d'entrée
+`require('plugin-eco')` ne peuvent pas y mener, et un test le vérifie sur le
+code packagé. La sonde elle-même n'écrit que sa mesure, dans un répertoire
+temporaire privé, et ne dépend de rien d'autre que `fs`.
+
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`
 juste après, demande un arbre syntaxique. tree-sitter le fournit pour de
