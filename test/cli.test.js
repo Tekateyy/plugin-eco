@@ -453,6 +453,16 @@ describe('parseMeasureArgs', () => {
     assert.strictEqual(o.gCO2PerKWh, 475);
   });
 
+  test('--runs est pris en compte, avec 1 comme défaut', () => {
+    assert.strictEqual(parseMeasureArgs(['bench.js']).runs, 1);
+    assert.strictEqual(parseMeasureArgs(['--runs', '5', 'bench.js']).runs, 5);
+  });
+
+  test('un nombre d\'exécutions non entier ou nul est refusé', () => {
+    assert.throws(() => parseMeasureArgs(['--runs', '0', 'bench.js']), /exécutions invalide/);
+    assert.throws(() => parseMeasureArgs(['--runs', '1.5', 'bench.js']), /exécutions invalide/);
+  });
+
   test('un TDP négatif ou non numérique est refusé', () => {
     assert.throws(() => parseMeasureArgs(['--tdp', '-1', 'bench.js']), /TDP invalide/);
     assert.throws(() => parseMeasureArgs(['--tdp', 'beaucoup', 'bench.js']), /TDP invalide/);
@@ -500,6 +510,19 @@ describe('measure : exécution réelle du binaire', () => {
     const failing = path.join('fixtures', 'measure-fail.js');
     const r = run(['measure', failing]);
     assert.strictEqual(r.code, 3);
+  });
+
+  test('--runs 3 rend la médiane et l\'affiche comme telle', () => {
+    const r = run(['measure', '--runs', '3', BENCH]);
+    assert.strictEqual(r.code, 0);
+    assert.match(r.stdout, /médiane de 3 exécutions/);
+    assert.match(r.stdout, /Étendue/);
+  });
+
+  test('--runs 3 en JSON expose les échantillons', () => {
+    const r = run(['measure', '--runs', '3', '--format', 'json', BENCH]);
+    const parsed = JSON.parse(r.stdout);
+    assert.strictEqual(parsed.samples.length, 3);
   });
 
   test('--tdp change l\'estimation d\'énergie', () => {
