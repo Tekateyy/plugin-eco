@@ -318,6 +318,8 @@ règles web qui distingue le code serveur du code navigateur. Mesure à
 l'exécution (Wh et CO₂) en prototype, limitée à Node. Python, Java et le
 portage IntelliJ sont les étapes suivantes.
 
+Le détail des changements par version est dans [CHANGELOG.md](CHANGELOG.md).
+
 ## Licence
 
 MIT — voir [LICENSE](LICENSE).

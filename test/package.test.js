@@ -73,9 +73,16 @@ describe('contenu du paquet npm', () => {
     // Le filet : si quelqu'un ajoute un fichier à la racine, ce test tombe et
     // l'oblige à décider explicitement s'il doit être publié.
     const inattendus = files.filter(f =>
-      !f.startsWith('out/') && !['package.json', 'README.md', 'LICENSE'].includes(f)
+      !f.startsWith('out/') && !['package.json', 'README.md', 'LICENSE', 'CHANGELOG.md'].includes(f)
     );
     assert.deepStrictEqual(inattendus, []);
+  });
+
+  test('le changelog est publié', () => {
+    // Pas nécessaire à l'exécution, mais lu par le Marketplace VSCode (onglet
+    // « Changelog » automatique si le fichier est présent dans le .vsix) et
+    // utile sur la page npm.
+    assert.ok(files.includes('CHANGELOG.md'));
   });
 });
 
