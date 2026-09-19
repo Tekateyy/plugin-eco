@@ -1,0 +1,56 @@
+name: Release Marketplace VSCode
+
+# Même déclencheur que release.yml (npm), canal séparé : `.vsix` par vsce,
+# tarball par npm. Un workflow par canal, pour qu'un échec de l'un n'affecte
+# jamais l'autre.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publier le .vsix
+    runs-on: ubuntu-latest
+
+    # Le Marketplace VSCode n'a pas d'équivalent au trusted publishing OIDC de
+    # npm : seul un jeton d'accès personnel (PAT) Azure DevOps authentifie
+    # `vsce publish`. Cet environnement rejoue donc la même défense que
+    # `npm stage publish` par un autre moyen — une validation humaine
+    # obligatoire (Settings > Environments > marketplace-vscode > required
+    # reviewers) avant que le job ne démarre, pour qu'un CI compromis ou un
+    # PAT qui fuite ne puisse jamais publier tout seul.
+    environment: marketplace-vscode
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      # Même vérification que release.yml : publier une version qui ne
+      # correspond pas au tag rendrait l'historique ininterprétable.
+      - name: Vérifier que le tag correspond à la version du manifeste
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "Tag $GITHUB_REF_NAME et version $PKG divergent." >&2
+            exit 1
+          fi
+
+      - name: Tests
+        run: npm test
+
+      # vsce publish reconstruit lui-même via vscode:prepublish (npm run
+      # compile) avant de packager — pas de build manuel ici.
+      - name: Publier
+        run: npx @vscode/vsce publish -p "${{ secrets.VSCE_PAT }}"

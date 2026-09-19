@@ -5,6 +5,7 @@ CLAUDE.md
 CLAUDE.local.md
 JOURNAL.md
 .gitignore
+.npmignore
 scripts/**
 samples/**
 fixtures/**
