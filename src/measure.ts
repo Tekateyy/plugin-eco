@@ -48,7 +48,12 @@ export interface MeasureResult {
  */
 export function runMeasured(script: string, opts: MeasureOptions = {}): MeasureResult {
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');
-  const outPath = path.join(os.tmpdir(), `plugin-eco-probe-${process.pid}-${Date.now()}.json`);
+  // Répertoire privé (0700, nom aléatoire) plutôt qu'un fichier au nom
+  // prévisible dans le tmpdir partagé : sur une machine multi-utilisateurs,
+  // personne ne peut y déposer d'avance un lien symbolique que la sonde
+  // suivrait en écrivant.
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-eco-'));
+  const outPath = path.join(outDir, 'probe.json');
 
   const result = spawnSync(
     process.execPath,
@@ -62,7 +67,7 @@ export function runMeasured(script: string, opts: MeasureOptions = {}): MeasureR
   } catch {
     raw = null;
   } finally {
-    try { fs.unlinkSync(outPath); } catch { /* déjà absent, rien à faire */ }
+    fs.rmSync(outDir, { recursive: true, force: true });
   }
 
   if (!raw) {

@@ -1,6 +1,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
+const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
@@ -112,6 +113,55 @@ describe('sûreté du manifeste', () => {
     // extension.js — qui importe `vscode` et casse hors de l'éditeur.
     assert.strictEqual(manifest.exports['.'], './out/index.js');
     assert.strictEqual(manifest.main, './out/extension');
+  });
+});
+
+describe('frontière d\'exécution', () => {
+  // `plugin-eco measure` exécute du code : c'est le seul endroit du paquet qui
+  // le fait, et il ne doit être atteignable que sur commande explicite du CLI.
+  // Ni l'extension (activation, sauvegarde, scan du workspace), ni la
+  // bibliothèque `require('plugin-eco')` ne doivent pouvoir y mener. Ces
+  // tests lisent le code réellement packagé (out/), pas les sources.
+  const OUT = path.join(ROOT, 'out');
+  const compiled = Object.fromEntries(
+    fs.readdirSync(OUT).filter(f => f.endsWith('.js'))
+      .map(f => [f, fs.readFileSync(path.join(OUT, f), 'utf8')])
+  );
+
+  test('seul measure.js importe child_process', () => {
+    for (const [file, code] of Object.entries(compiled)) {
+      const uses = /require\(["']child_process["']\)/.test(code);
+      assert.strictEqual(uses, file === 'measure.js',
+        `${file} ${uses ? 'ne doit pas' : 'doit'} importer child_process`);
+    }
+  });
+
+  test('seul le CLI importe measure.js', () => {
+    for (const [file, code] of Object.entries(compiled)) {
+      const uses = /require\(["']\.\/measure["']\)/.test(code);
+      assert.strictEqual(uses, file === 'cli.js',
+        `${file} ${uses ? 'ne doit pas' : 'doit'} importer ./measure`);
+    }
+  });
+
+  test('l\'extension ne lance aucun processus', () => {
+    for (const file of ['extension.js', 'workspace.js', 'webview.js', 'index.js']) {
+      assert.doesNotMatch(compiled[file], /\b(spawn|exec|execFile|fork)(Sync)?\(/,
+        `${file} ne doit lancer aucun processus`);
+    }
+  });
+
+  test('la sonde ne dépend que de fs', () => {
+    // Elle tourne dans le processus de l'utilisateur : rien d'autre que
+    // l'écriture de sa mesure ne doit y entrer.
+    const requires = [...compiled['probe.js'].matchAll(/require\(["']([^"']+)["']\)/g)].map(m => m[1]);
+    assert.deepStrictEqual(requires, ['fs']);
+  });
+
+  test('charger la bibliothèque ne charge pas measure.js', () => {
+    require(path.join(OUT, 'index.js'));
+    const loaded = Object.keys(require.cache).filter(k => k.endsWith('measure.js'));
+    assert.deepStrictEqual(loaded, []);
   });
 });
 

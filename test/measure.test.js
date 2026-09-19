@@ -82,11 +82,16 @@ describe('runMeasured', () => {
     assert.ok(raw.maxRssBytes > 0, 'une mémoire résidente positive est attendue');
   });
 
-  test('ne laisse aucun fichier temporaire derrière elle', () => {
-    const before = fs.readdirSync(require('node:os').tmpdir()).filter(f => f.startsWith('plugin-eco-probe-'));
+  test('ne laisse aucun répertoire temporaire derrière elle', () => {
+    const tmp = require('node:os').tmpdir();
+    const ours = () => fs.readdirSync(tmp).filter(f => f.startsWith('plugin-eco-'));
+    const before = ours();
     runMeasured(BENCH);
-    const after = fs.readdirSync(require('node:os').tmpdir()).filter(f => f.startsWith('plugin-eco-probe-'));
-    assert.deepStrictEqual(after, before);
+    assert.deepStrictEqual(ours(), before);
+    // Y compris quand la sonde n'a rien écrit : le nettoyage ne dépend pas de
+    // la présence du fichier de mesure.
+    assert.throws(() => runMeasured(BENCH, { probePath: path.join(ROOT, 'fixtures', 'silent-probe.js') }));
+    assert.deepStrictEqual(ours(), before);
   });
 
   test('remonte le code de sortie du script mesuré', () => {
