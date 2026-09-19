@@ -32,21 +32,71 @@ export interface MeasureOptions {
   /** Chemin de la sonde à précharger ; défaut : `probe.js` à côté de ce module compilé. */
   probePath?: string;
   args?: string[];
+  /** Nombre d'exécutions ; au-delà de 1, `raw` est la médiane des mesures. Défaut : 1. */
+  runs?: number;
 }
 
 export interface MeasureResult {
+  /** Mesure retenue : celle de l'exécution unique, ou la médiane de `samples`. */
   raw: RawMeasurement;
   /** Code de sortie du programme mesuré (pas celui du CLI). */
   exitCode: number | null;
+  /** Mesure brute de chaque exécution, dans l'ordre. */
+  samples: RawMeasurement[];
 }
 
 /**
- * Exécute `script` sous la sonde et retourne sa mesure brute.
+ * Exécute `script` sous la sonde, une ou plusieurs fois, et retourne sa mesure.
  *
  * stdout/stderr du programme mesuré sont hérités (`inherit`) : l'utilisateur
  * le voit tourner normalement, aucune sortie de mesure ne s'y mélange.
+ *
+ * Avec `runs > 1`, les exécutions s'arrêtent à la première qui échoue : un
+ * script en erreur n'a pas de consommation représentative à moyenner, et son
+ * code de sortie doit remonter tel quel.
  */
 export function runMeasured(script: string, opts: MeasureOptions = {}): MeasureResult {
+  const runs = opts.runs ?? 1;
+  const samples: RawMeasurement[] = [];
+  let exitCode: number | null = null;
+
+  for (let i = 0; i < runs; i++) {
+    const once = runOnce(script, opts);
+    samples.push(once.raw);
+    exitCode = once.exitCode;
+    if (exitCode !== 0) break;
+  }
+
+  return { raw: medianMeasurement(samples), exitCode, samples };
+}
+
+/** Médiane d'une liste non vide ; moyenne des deux valeurs centrales si paire. */
+export function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+/**
+ * Médiane champ par champ — comme le font les outils de benchmark, plutôt que
+ * de retenir « l'exécution médiane » : chaque grandeur est bruitée par sa
+ * propre cause (CPU par l'ordonnanceur, RAM par le GC), et l'exécution la plus
+ * typique sur l'une ne l'est pas forcément sur l'autre.
+ */
+export function medianMeasurement(samples: RawMeasurement[]): RawMeasurement {
+  if (samples.length === 0) {
+    throw new Error('aucune mesure à agréger.');
+  }
+  const rss = samples.map(s => s.maxRssBytes).filter((v): v is number => v !== null);
+  return {
+    cpuUserUs: median(samples.map(s => s.cpuUserUs)),
+    cpuSystemUs: median(samples.map(s => s.cpuSystemUs)),
+    wallMs: median(samples.map(s => s.wallMs)),
+    maxRssBytes: rss.length ? median(rss) : null,
+  };
+}
+
+function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; exitCode: number | null } {
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');
   // Répertoire privé (0700, nom aléatoire) plutôt qu'un fichier au nom
   // prévisible dans le tmpdir partagé : sur une machine multi-utilisateurs,

@@ -210,9 +210,30 @@ Le CPU et la RAM réels se convertissent en Wh via des coefficients standards
 des hypothèses, pas des mesures, et `--tdp`, `--cores` et `--carbon` les
 ajustent. `--format json` rend la même mesure exploitable par un script.
 
-Prototype volontairement limité : un langage (Node), une seule exécution, sans
-répétition ni moyenne. Étape suivante si le modèle tient : Python et Java,
-selon le même principe (une sonde préchargée dans le processus mesuré).
+`--runs <n>` répète l'exécution et retient la médiane de chaque grandeur
+(CPU, RAM, durée), avec l'étendue observée affichée à côté — utile si une
+seule exécution semble bruitée :
+
+```bash
+npx plugin-eco measure --runs 5 script.js
+```
+
+```
+Mesure de script.js — médiane de 5 exécutions
+  CPU        1.79 s (user 1.68 · system 0.11)
+  Durée      1.94 s
+  Mémoire    max 58 Mo
+  Étendue    CPU 1.71–1.98 s · durée 1.85–2.10 s
+  Énergie    ≈ 0.0040 Wh      ≈ 0.21 mg CO₂
+  Hypothèses 8.1 W/cœur (TDP 65 W / 8 cœurs), 0.392 W/Go, 52 gCO₂/kWh
+```
+
+Une exécution en échec arrête la série : son code de sortie est rendu tel
+quel, avec la médiane des exécutions déjà faites.
+
+Prototype volontairement limité à un langage (Node). Étape suivante si le
+modèle tient : Python et Java, selon le même principe (une sonde préchargée
+dans le processus mesuré).
 
 ## Choix techniques
 

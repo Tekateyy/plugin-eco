@@ -392,6 +392,7 @@ export interface MeasureCliOptions {
   tdpWatts: number;
   cores: number;
   gCO2PerKWh: number;
+  runs: number;
   help: boolean;
 }
 
@@ -403,6 +404,7 @@ reste l'étiquette A–E comparable entre fichiers, la mesure est un axe à part
 avec ses hypothèses de conversion affichées à côté du résultat.
 
 Options
+  --runs <n>               Exécutions successives, médiane retenue (défaut : 1)
   --tdp <watts>            TDP du processeur (défaut : ${DEFAULT_TDP_WATTS} W)
   --cores <n>              Cœurs sur lesquels le TDP se répartit (défaut : détecté)
   --carbon <gCO2/kWh>      Intensité carbone du réseau (défaut : ${DEFAULT_GCO2_PER_KWH}, France)
@@ -414,8 +416,11 @@ pas dans ce prototype. Sa sortie standard est héritée telle quelle, et le
 rapport de mesure s'y ajoute ensuite : avec --format json, un script qui écrit
 lui-même sur stdout casse le JSON produit.
 
+Avec --runs, une exécution qui échoue arrête la série : son code de sortie est
+rendu tel quel, avec la médiane des exécutions déjà faites.
+
 Exemple
-  plugin-eco measure mon-script.js -- --iterations 100000`;
+  plugin-eco measure --runs 5 mon-script.js -- --iterations 100000`;
 
 export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
   const options: MeasureCliOptions = {
@@ -424,6 +429,7 @@ export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
     tdpWatts: DEFAULT_TDP_WATTS,
     cores: os.cpus().length || 1,
     gCO2PerKWh: DEFAULT_GCO2_PER_KWH,
+    runs: 1,
     help: false,
   };
 
@@ -456,6 +462,12 @@ export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
         throw new Error(`Intensité carbone invalide : ${argv[i] ?? '(manquante)'}. Attendu un nombre positif ou nul.`);
       }
       options.gCO2PerKWh = value;
+    } else if (arg === '--runs') {
+      const value = Number(argv[++i]);
+      if (!Number.isInteger(value) || value < 1) {
+        throw new Error(`Nombre d'exécutions invalide : ${argv[i] ?? '(manquant)'}. Attendu un entier ≥ 1.`);
+      }
+      options.runs = value;
     } else if (arg === '--') {
       options.scriptArgs.push(...argv.slice(i + 1));
       break;
@@ -472,20 +484,35 @@ export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
 }
 
 export function renderMeasureText(script: string, result: MeasureResult, est: EnergyEstimate): string {
-  const { raw, exitCode } = result;
+  const { raw, exitCode, samples } = result;
   const cpuUserS = raw.cpuUserUs / 1e6;
   const cpuSystemS = raw.cpuSystemUs / 1e6;
   const maxRssMo = raw.maxRssBytes !== null ? (raw.maxRssBytes / 1024 ** 2).toFixed(0) : '?';
 
-  return [
-    `Mesure de ${script}`,
+  const lines = [
+    samples.length > 1 ? `Mesure de ${script} — médiane de ${samples.length} exécutions` : `Mesure de ${script}`,
     `  Sortie     code ${exitCode ?? '?'}`,
     `  CPU        ${(cpuUserS + cpuSystemS).toFixed(2)} s (user ${cpuUserS.toFixed(2)} · system ${cpuSystemS.toFixed(2)})`,
     `  Durée      ${(raw.wallMs / 1000).toFixed(2)} s`,
     `  Mémoire    max ${maxRssMo} Mo`,
+  ];
+
+  if (samples.length > 1) {
+    // L'étendue dit si la médiane est fiable : un écart large invite à
+    // relancer sur une machine moins chargée plutôt qu'à croire le chiffre.
+    const cpu = samples.map(s => (s.cpuUserUs + s.cpuSystemUs) / 1e6);
+    const wall = samples.map(s => s.wallMs / 1000);
+    lines.push(
+      `  Étendue    CPU ${Math.min(...cpu).toFixed(2)}–${Math.max(...cpu).toFixed(2)} s · ` +
+      `durée ${Math.min(...wall).toFixed(2)}–${Math.max(...wall).toFixed(2)} s`
+    );
+  }
+
+  lines.push(
     `  Énergie    ≈ ${est.wh.toFixed(4)} Wh      ≈ ${(est.gCO2 * 1000).toFixed(2)} mg CO₂`,
     `  Hypothèses ${est.hypotheses}`,
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 export function renderMeasureJson(script: string, result: MeasureResult, est: EnergyEstimate): string {
@@ -513,7 +540,7 @@ export async function runMeasureCommand(argv: string[]): Promise<number> {
 
   let result: MeasureResult;
   try {
-    result = runMeasured(options.script, { args: options.scriptArgs });
+    result = runMeasured(options.script, { args: options.scriptArgs, runs: options.runs });
   } catch (err) {
     process.stderr.write(`Échec de la mesure : ${(err as Error).message}\n`);
     return 2;

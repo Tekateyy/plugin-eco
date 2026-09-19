@@ -3,7 +3,10 @@ const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const { runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH } = require('../out/measure');
+const {
+  runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH,
+  median, medianMeasurement,
+} = require('../out/measure');
 
 const ROOT = path.join(__dirname, '..');
 const BENCH = path.join(ROOT, 'fixtures', 'bench.js');
@@ -59,6 +62,47 @@ describe('estimate', () => {
   });
 });
 
+describe('median', () => {
+  test('impair : retient la valeur centrale', () => {
+    assert.strictEqual(median([3, 1, 2]), 2);
+  });
+
+  test('pair : moyenne des deux valeurs centrales', () => {
+    assert.strictEqual(median([1, 2, 3, 4]), 2.5);
+  });
+
+  test('une seule valeur se retient elle-même', () => {
+    assert.strictEqual(median([42]), 42);
+  });
+});
+
+describe('medianMeasurement', () => {
+  test('agrège chaque champ indépendamment, pas "l\'exécution médiane"', () => {
+    // La mesure au CPU le plus élevé a la RAM la plus basse : une médiane par
+    // champ ne doit pas retomber sur l'une des trois mesures telle quelle.
+    const samples = [
+      { cpuUserUs: 100, cpuSystemUs: 0, wallMs: 10, maxRssBytes: 300 },
+      { cpuUserUs: 200, cpuSystemUs: 0, wallMs: 20, maxRssBytes: 200 },
+      { cpuUserUs: 300, cpuSystemUs: 0, wallMs: 30, maxRssBytes: 100 },
+    ];
+    assert.deepStrictEqual(medianMeasurement(samples), {
+      cpuUserUs: 200, cpuSystemUs: 0, wallMs: 20, maxRssBytes: 200,
+    });
+  });
+
+  test('maxRssBytes null est ignoré plutôt que traité comme zéro', () => {
+    const samples = [
+      { cpuUserUs: 1, cpuSystemUs: 0, wallMs: 1, maxRssBytes: null },
+      { cpuUserUs: 1, cpuSystemUs: 0, wallMs: 1, maxRssBytes: 400 },
+    ];
+    assert.strictEqual(medianMeasurement(samples).maxRssBytes, 400);
+  });
+
+  test('une liste vide est une erreur, pas une mesure à zéro', () => {
+    assert.throws(() => medianMeasurement([]), /aucune mesure/);
+  });
+});
+
 describe('defaultCoefficients', () => {
   test('détecte le nombre de cœurs et retient le carbone France par défaut', () => {
     const coeffs = defaultCoefficients();
@@ -108,6 +152,20 @@ describe('runMeasured', () => {
     const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'inexistant.js'));
     assert.notStrictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs >= 0);
+  });
+
+  test('runs > 1 exécute plusieurs fois et rend la médiane, avec chaque échantillon', () => {
+    const { raw, exitCode, samples } = runMeasured(BENCH, { runs: 3 });
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(samples.length, 3);
+    assert.deepStrictEqual(raw, medianMeasurement(samples));
+  });
+
+  test('runs > 1 s\'arrête à la première exécution en échec', () => {
+    const failing = path.join(ROOT, 'fixtures', 'measure-fail.js');
+    const { exitCode, samples } = runMeasured(failing, { runs: 5 });
+    assert.strictEqual(exitCode, 3);
+    assert.strictEqual(samples.length, 1, 'ne doit pas continuer après un échec');
   });
 
   test('sans sortie produite du tout, runMeasured lève une erreur exploitable', () => {
