@@ -2,14 +2,21 @@ const { test, describe } = require('node:test');
 const assert = require('node:assert');
 const path = require('node:path');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 
 const {
   runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH,
-  median, medianMeasurement,
+  median, medianMeasurement, languageFor, defaultPythonInterpreter,
 } = require('../out/measure');
 
 const ROOT = path.join(__dirname, '..');
 const BENCH = path.join(ROOT, 'fixtures', 'bench.js');
+const BENCH_PY = path.join(ROOT, 'fixtures', 'bench.py');
+
+// L'interpréteur par défaut n'est pas garanti présent sur toute machine CI ;
+// les tests Python se désactivent proprement plutôt que d'échouer si absent.
+const PYTHON = defaultPythonInterpreter();
+const pythonAvailable = !spawnSync(PYTHON, ['--version']).error;
 
 // --- estimate() : fonction pure, aucune exécution -------------------------
 
@@ -103,6 +110,24 @@ describe('medianMeasurement', () => {
   });
 });
 
+describe('languageFor', () => {
+  test('.py est détecté comme Python', () => {
+    assert.strictEqual(languageFor('script.py'), 'python');
+  });
+
+  test('tout le reste est traité comme Node, y compris sans extension connue', () => {
+    for (const script of ['a.js', 'a.mjs', 'a.cjs', 'a.ts', 'a']) {
+      assert.strictEqual(languageFor(script), 'node');
+    }
+  });
+});
+
+describe('defaultPythonInterpreter', () => {
+  test('« python » sous Windows, « python3 » ailleurs', () => {
+    assert.strictEqual(defaultPythonInterpreter(), process.platform === 'win32' ? 'python' : 'python3');
+  });
+});
+
 describe('defaultCoefficients', () => {
   test('détecte le nombre de cœurs et retient le carbone France par défaut', () => {
     const coeffs = defaultCoefficients();
@@ -174,5 +199,81 @@ describe('runMeasured', () => {
     // défensif de runMeasured plutôt que le cas normal ci-dessus.
     const silentProbe = path.join(ROOT, 'fixtures', 'silent-probe.js');
     assert.throws(() => runMeasured(BENCH, { probePath: silentProbe }), /aucune mesure/);
+  });
+
+  test('un interpréteur introuvable lève une erreur exploitable', () => {
+    assert.throws(
+      () => runMeasured(BENCH_PY, { pythonInterpreter: 'plugin-eco-interprete-inexistant' }),
+      /introuvable/
+    );
+  });
+});
+
+// --- runMeasured() : Python -------------------------------------------------
+//
+// Désactivés proprement (pas d'échec) si l'interpréteur par défaut n'est pas
+// sur le PATH de la machine qui exécute les tests.
+
+describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable sur cette machine' }, () => {
+  test('mesure un vrai script Python qui se termine de lui-même', () => {
+    const { raw, exitCode } = runMeasured(BENCH_PY);
+    assert.strictEqual(exitCode, 0);
+    assert.ok(raw.cpuUserUs > 0, 'du temps CPU user doit avoir été consommé');
+    assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
+    // Windows (ctypes/psapi) et Linux/macOS (resource) répondent tous les
+    // deux : null ne doit survenir que sur une plateforme non couverte par
+    // aucun des deux chemins, ce qu'aucune CI de ce projet n'utilise.
+    assert.ok(raw.maxRssBytes > 0, `RSS attendu positif, obtenu ${raw.maxRssBytes}`);
+  });
+
+  test('remonte le code de sortie du script Python mesuré', () => {
+    const failing = path.join(ROOT, 'fixtures', 'measure-fail.py');
+    const { exitCode } = runMeasured(failing);
+    assert.strictEqual(exitCode, 3);
+  });
+
+  test('le script mesuré reçoit ses propres arguments et son propre __name__/__file__', () => {
+    // stdio est hérité par le script mesuré (voir runMeasured) : on ne peut
+    // pas lire sa sortie directement, donc le script écrit ce qu'il observe
+    // dans un fichier dont le chemin lui est passé en argument.
+    const echoScript = path.join(ROOT, 'fixtures', 'echo-argv.py');
+    const echoOut = path.join(ROOT, 'fixtures', 'echo-argv.out.json');
+    fs.writeFileSync(echoScript, [
+      'import json, sys',
+      'with open(sys.argv[1], "w") as f:',
+      '    json.dump({"argv": sys.argv, "name": __name__}, f)',
+      '',
+    ].join('\n'));
+    try {
+      const { exitCode } = runMeasured(echoScript, { args: [echoOut, 'b'] });
+      assert.strictEqual(exitCode, 0);
+      const seen = JSON.parse(fs.readFileSync(echoOut, 'utf8'));
+      // argv[0] est le chemin du script, comme pour un `python script.py`
+      // normal — pas le chemin de la sonde ni celui du wrapper.
+      assert.deepStrictEqual(seen.argv, [echoScript, echoOut, 'b']);
+      assert.strictEqual(seen.name, '__main__');
+    } finally {
+      fs.unlinkSync(echoScript);
+      try { fs.unlinkSync(echoOut); } catch { /* pas écrit si le test a échoué avant */ }
+    }
+  });
+
+  test('un script Python introuvable produit quand même une mesure et un code d\'échec', () => {
+    // runpy.run_path lève après que la sonde s'est déjà installée (atexit
+    // enregistré avant l'appel) — même comportement que Node avec --require.
+    const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'inexistant.py'));
+    assert.notStrictEqual(exitCode, 0);
+    assert.ok(raw.cpuUserUs >= 0);
+  });
+
+  test('runs > 1 fonctionne aussi sur Python', () => {
+    const { exitCode, samples } = runMeasured(BENCH_PY, { runs: 2 });
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(samples.length, 2);
+  });
+
+  test('--python permet de viser un exécutable précis', () => {
+    const { exitCode } = runMeasured(BENCH_PY, { pythonInterpreter: PYTHON });
+    assert.strictEqual(exitCode, 0);
   });
 });

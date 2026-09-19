@@ -189,8 +189,9 @@ absent, et rien n'y importe `vscode`.
 ## Mesure à l'exécution (prototype)
 
 L'étiquette A–E est une estimation statique. `plugin-eco measure` mesure pour
-de vrai, sur un script Node qui se termine de lui-même — pas un serveur — en
-l'exécutant réellement :
+de vrai, sur un script Node ou Python qui se termine de lui-même — pas un
+serveur — en l'exécutant réellement, langage détecté par l'extension du
+fichier :
 
 ```bash
 npx plugin-eco measure script.js
@@ -231,9 +232,18 @@ Mesure de script.js — médiane de 5 exécutions
 Une exécution en échec arrête la série : son code de sortie est rendu tel
 quel, avec la médiane des exécutions déjà faites.
 
-Prototype volontairement limité à un langage (Node). Étape suivante si le
-modèle tient : Python et Java, selon le même principe (une sonde préchargée
-dans le processus mesuré).
+Pour un script `.py`, `--python <exécutable>` cible un interpréteur précis
+(un venv, une version donnée) ; par défaut, `python` sous Windows, `python3`
+ailleurs :
+
+```bash
+npx plugin-eco measure script.py
+npx plugin-eco measure --python .venv/bin/python script.py
+```
+
+Prototype volontairement limité à Node et Python. Étape suivante si le modèle
+tient : Java, selon le même principe (une sonde exécutée à la place du
+programme mesuré).
 
 ## Choix techniques
 
@@ -249,19 +259,36 @@ et le CO₂ que rend `plugin-eco measure` sont un axe séparé, mesuré plutôt 
 deviné, et n'entrent délibérément pas dans le calcul de la lettre : les
 mélanger casserait la comparabilité qui fait la valeur de l'étiquette.
 
-**La mesure runtime précharge une sonde, elle n'instrumente pas le code.**
-`node --require probe.js script.js` mesure le processus réel (CPU, RAM, durée)
-sans transformer le script mesuré ni ajouter de dépendance d'exécution.
-Le même principe — sonde préchargée, résultat en JSON — se transposera à Python
-et Java.
+**La mesure runtime encadre le script mesuré, elle ne l'instrumente pas.**
+`node --require probe.js script.js` précharge la sonde dans le processus
+mesuré ; `python probe.py script.py` l'exécute à la place du script, qu'elle
+relance elle-même via `runpy`. Les deux mesurent le processus réel (CPU, RAM,
+durée) sans transformer le script mesuré ni ajouter de dépendance d'exécution,
+et écrivent le même résultat en JSON. Java (prochaine étape) suivra le même
+principe, adapté à son propre mécanisme de lancement.
+
+**Python n'a pas d'équivalent à `node --require <chemin arbitraire>`.**
+`sitecustomize.py` — l'option envisagée d'abord — impose un nom de fichier
+fixe posé sur un `PYTHONPATH` dédié : il faudrait le fusionner avec celui de
+l'utilisateur sans l'écraser, et il masquerait un `sitecustomize.py` que son
+environnement aurait déjà. Le wrapper (même principe que `python -m
+cProfile`) évite les deux : un chemin de fichier libre, comme `probe.js`.
+
+**RSS Python : la bibliothèque standard par plateforme, pas `psutil`.**
+`resource.getrusage()` n'existe pas sous Windows. Plutôt qu'une dépendance
+unifiée — qui s'installerait dans l'environnement de *l'utilisateur final*,
+puisque la sonde tourne dans son processus, pas dans celui du plugin —
+`probe.py` utilise `ctypes` + `GetProcessMemoryInfo` (psapi.dll) sous Windows
+et `resource.getrusage().ru_maxrss` sous Linux/macOS.
 
 **Seul `measure` exécute du code, et seulement sur commande.** L'analyse
 statique ne fait que lire : elle tourne à la frappe, à la sauvegarde, sur tout
 un workspace, sans jamais lancer de processus. `plugin-eco measure` est
 l'unique exception, réservée au CLI : l'extension VSCode et le point d'entrée
 `require('plugin-eco')` ne peuvent pas y mener, et un test le vérifie sur le
-code packagé. La sonde elle-même n'écrit que sa mesure, dans un répertoire
-temporaire privé, et ne dépend de rien d'autre que `fs`.
+code packagé. Les sondes elles-mêmes n'écrivent que leur mesure, dans un
+répertoire temporaire privé, et ne dépendent que de leur bibliothèque
+standard respective.
 
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`
@@ -315,8 +342,8 @@ installée n'a pas les `node_modules` de développement sous la main : le script
 
 Analyse statique de Java, JavaScript, TypeScript et Python, avec un jeu de
 règles web qui distingue le code serveur du code navigateur. Mesure à
-l'exécution (Wh et CO₂) en prototype, limitée à Node. Python, Java et le
-portage IntelliJ sont les étapes suivantes.
+l'exécution (Wh et CO₂) en prototype, pour Node et Python. Java et le portage
+IntelliJ sont les étapes suivantes.
 
 ## Licence
 

@@ -60,7 +60,7 @@ describe('contenu du paquet npm', () => {
       'package.json', 'README.md', 'LICENSE',
       'out/index.js', 'out/index.d.ts',
       'out/cli.js', 'out/rules.js', 'out/scoring.js', 'out/context.js',
-      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js',
+      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
       'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
       'out/wasm/tree-sitter-python.wasm',
@@ -151,11 +151,23 @@ describe('frontière d\'exécution', () => {
     }
   });
 
-  test('la sonde ne dépend que de fs', () => {
+  test('la sonde Node ne dépend que de fs', () => {
     // Elle tourne dans le processus de l'utilisateur : rien d'autre que
     // l'écriture de sa mesure ne doit y entrer.
     const requires = [...compiled['probe.js'].matchAll(/require\(["']([^"']+)["']\)/g)].map(m => m[1]);
     assert.deepStrictEqual(requires, ['fs']);
+  });
+
+  test('la sonde Python ne dépend que de la bibliothèque standard', () => {
+    // Comme probe.js : elle tourne dans le processus de l'utilisateur, rien
+    // ne doit y entrer qui ne soit déjà dans une installation Python nue.
+    const probePy = fs.readFileSync(path.join(OUT, 'probe.py'), 'utf8');
+    const imports = [...probePy.matchAll(/^\s*import (\w+)/gm)].map(m => m[1]);
+    const stdlib = ['atexit', 'json', 'os', 'runpy', 'sys', 'time', 'resource', 'ctypes'];
+    for (const mod of imports) {
+      assert.ok(stdlib.includes(mod), `import inattendu dans probe.py : ${mod}`);
+    }
+    assert.doesNotMatch(probePy, /\bsubprocess\b|\bsocket\b|\burllib\b/);
   });
 
   test('charger la bibliothèque ne charge pas measure.js', () => {
