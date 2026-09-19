@@ -43,7 +43,7 @@ describe('contenu du paquet npm', () => {
   });
 
   test('ni les sources, ni les tests, ni les exemples', () => {
-    for (const prefixe of ['src/', 'test/', 'samples/', 'fixtures/', 'scripts/']) {
+    for (const prefixe of ['src/', 'test/', 'samples/', 'fixtures/', 'scripts/', 'resources/']) {
       assert.deepStrictEqual(
         files.filter(f => f.startsWith(prefixe)), [],
         `${prefixe} ne doit pas être publié`
@@ -83,6 +83,72 @@ describe('contenu du paquet npm', () => {
     // « Changelog » automatique si le fichier est présent dans le .vsix) et
     // utile sur la page npm.
     assert.ok(files.includes('CHANGELOG.md'));
+  });
+});
+
+/**
+ * Même principe que packedFiles(), pour l'autre canal : `vsce ls` liste les
+ * fichiers qu'un `vsce package`/`vsce publish` embarquerait réellement, sans
+ * produire de .vsix. `.vscodeignore` est une liste d'exclusion elle aussi —
+ * même raisonnement que pour `.npmignore`, même défense.
+ */
+function vsixFiles() {
+  const r = spawnSync('npx', ['@vscode/vsce', 'ls'], {
+    cwd: ROOT, encoding: 'utf8', shell: process.platform === 'win32',
+  });
+  assert.strictEqual(r.status, 0, `vsce ls a échoué : ${r.stderr}`);
+  return r.stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+}
+
+describe('contenu du .vsix', () => {
+  const files = vsixFiles();
+
+  test('rien de local ni de confidentiel n\'est publié', () => {
+    const interdits = [
+      'CLAUDE.md', '.claude/', '.vscode/', '.github/',
+      '.env', '.npmrc', 'tsconfig.json', '.vscodeignore', '.npmignore',
+    ];
+    for (const motif of interdits) {
+      const fuite = files.filter(f => f === motif || f.startsWith(motif));
+      assert.deepStrictEqual(fuite, [], `${motif} ne doit pas être publié`);
+    }
+  });
+
+  test('ni les sources, ni les tests, ni les exemples', () => {
+    for (const prefixe of ['src/', 'test/', 'samples/', 'fixtures/', 'scripts/']) {
+      assert.deepStrictEqual(
+        files.filter(f => f.startsWith(prefixe)), [],
+        `${prefixe} ne doit pas être publié`
+      );
+    }
+  });
+
+  test('pas de carte de source ni de .d.ts — pas de consommateur TypeScript côté éditeur', () => {
+    assert.deepStrictEqual(files.filter(f => f.endsWith('.map') || f.endsWith('.d.ts')), []);
+  });
+
+  test('le .vsix contient tout ce qu\'il faut pour tourner dans l\'éditeur', () => {
+    for (const requis of [
+      'package.json', 'README.md', 'LICENSE', 'CHANGELOG.md', 'resources/icon.png',
+      'out/extension.js', 'out/webview.js', 'out/workspace.js',
+      'out/rules.js', 'out/scoring.js', 'out/context.js',
+      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py',
+      'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
+      'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
+      'out/wasm/tree-sitter-python.wasm',
+    ]) {
+      assert.ok(files.includes(requis), `${requis} manque au .vsix`);
+    }
+  });
+
+  test('aucun fichier hors de la liste attendue à la racine', () => {
+    // Le filet : node_modules/ et out/ ont leur propre contenu attendu
+    // (grammaires, runtime tree-sitter), le reste doit être nommément permis.
+    const attendus = ['package.json', 'README.md', 'LICENSE', 'CHANGELOG.md', 'resources/icon.png'];
+    const inattendus = files.filter(f =>
+      !f.startsWith('out/') && !f.startsWith('node_modules/') && !attendus.includes(f)
+    );
+    assert.deepStrictEqual(inattendus, []);
   });
 });
 

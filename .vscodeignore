@@ -3,6 +3,7 @@
 .github/**
 CLAUDE.md
 .gitignore
+.npmignore
 scripts/**
 samples/**
 fixtures/**
