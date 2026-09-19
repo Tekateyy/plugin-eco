@@ -6,13 +6,17 @@
  * A–E reste une estimation statique, comparable entre fichiers ; la mesure
  * ici produite est un axe à part, avec ses propres hypothèses affichées.
  *
- * Mécanisme : on précharge `probe.js` dans le processus du script mesuré via
- * `node --require`. La sonde écrit `RawMeasurement` en JSON dans un fichier
- * temporaire à la sortie du processus ; ce module le lit et le convertit en
- * Wh/CO₂ via des coefficients standards, explicitement affichés en résultat.
+ * Mécanisme, par langage : Node précharge `probe.js` via `node --require` ;
+ * Python exécute `probe.py <script>`, qui s'installe puis lance le script via
+ * `runpy` — un wrapper plutôt qu'un `sitecustomize.py` posé sur un
+ * `PYTHONPATH` dédié, pour ne rien avoir à fusionner avec celui de
+ * l'utilisateur ni masquer le sien s'il en a un. Dans les deux cas, la sonde
+ * écrit `RawMeasurement` en JSON dans un fichier temporaire à la sortie du
+ * processus ; ce module le lit et le convertit en Wh/CO₂ via des coefficients
+ * standards, explicitement affichés en résultat.
  *
- * Écrit pour se transposer à Python (sitecustomize + resource.getrusage) et
- * Java (-javaagent ou JFR) sans changer cette frontière.
+ * Écrit pour se transposer à Java (-javaagent ou JFR) sans changer cette
+ * frontière.
  */
 
 import * as fs from 'fs';
@@ -28,12 +32,26 @@ export interface RawMeasurement {
   maxRssBytes: number | null;
 }
 
+export type Language = 'node' | 'python';
+
+/** Langage déduit de l'extension ; tout ce qui n'est pas `.py` est traité comme Node. */
+export function languageFor(script: string): Language {
+  return path.extname(script) === '.py' ? 'python' : 'node';
+}
+
+/** `python` sous Windows (où `python3` n'existe généralement pas), `python3` ailleurs. */
+export function defaultPythonInterpreter(): string {
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
 export interface MeasureOptions {
-  /** Chemin de la sonde à précharger ; défaut : `probe.js` à côté de ce module compilé. */
+  /** Chemin de la sonde à précharger/exécuter ; défaut : `probe.js`/`probe.py` selon le langage. */
   probePath?: string;
   args?: string[];
   /** Nombre d'exécutions ; au-delà de 1, `raw` est la médiane des mesures. Défaut : 1. */
   runs?: number;
+  /** Exécutable Python à lancer pour un script `.py` ; défaut : `defaultPythonInterpreter()`. */
+  pythonInterpreter?: string;
 }
 
 export interface MeasureResult {
@@ -96,8 +114,22 @@ export function medianMeasurement(samples: RawMeasurement[]): RawMeasurement {
   };
 }
 
-function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; exitCode: number | null } {
+/** Sonde et commande à lancer pour mesurer `script`, selon son langage détecté. */
+function commandFor(script: string, opts: MeasureOptions): { command: string; args: string[] } {
+  const lang = languageFor(script);
+  const scriptArgs = opts.args ?? [];
+
+  if (lang === 'python') {
+    const probePath = opts.probePath ?? path.join(__dirname, 'probe.py');
+    const python = opts.pythonInterpreter ?? defaultPythonInterpreter();
+    return { command: python, args: [probePath, script, ...scriptArgs] };
+  }
+
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');
+  return { command: process.execPath, args: ['--require', probePath, script, ...scriptArgs] };
+}
+
+function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; exitCode: number | null } {
   // Répertoire privé (0700, nom aléatoire) plutôt qu'un fichier au nom
   // prévisible dans le tmpdir partagé : sur une machine multi-utilisateurs,
   // personne ne peut y déposer d'avance un lien symbolique que la sonde
@@ -105,11 +137,10 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-eco-'));
   const outPath = path.join(outDir, 'probe.json');
 
-  const result = spawnSync(
-    process.execPath,
-    ['--require', probePath, script, ...(opts.args ?? [])],
-    { stdio: 'inherit', env: { ...process.env, PLUGIN_ECO_PROBE_OUT: outPath } }
-  );
+  const { command, args } = commandFor(script, opts);
+  const result = spawnSync(command, args, {
+    stdio: 'inherit', env: { ...process.env, PLUGIN_ECO_PROBE_OUT: outPath },
+  });
 
   let raw: RawMeasurement | null = null;
   try {
@@ -121,6 +152,10 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
   }
 
   if (!raw) {
+    if (result.error) {
+      // Cas typique : interpréteur absent du PATH (ex. `python3` sous Windows).
+      throw new Error(`interpréteur « ${command} » introuvable : ${result.error.message}`);
+    }
     throw new Error(
       `le programme n'a produit aucune mesure (code de sortie ${result.status ?? result.signal ?? '?'}).`
     );

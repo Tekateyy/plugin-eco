@@ -12,6 +12,10 @@ const {
   parseMeasureArgs,
 } = require('../out/cli');
 const { ALL_RULE_IDS } = require('../out/languages');
+const { defaultPythonInterpreter } = require('../out/measure');
+
+const PYTHON = defaultPythonInterpreter();
+const pythonAvailable = !spawnSync(PYTHON, ['--version']).error;
 
 const ROOT = path.join(__dirname, '..');
 const CLI = path.join(ROOT, 'out', 'cli.js');
@@ -123,10 +127,11 @@ describe('collectPaths', () => {
   test('un dossier est parcouru récursivement', () => {
     const found = collectPaths(path.join(ROOT, 'src'));
     assert.ok(found.length >= 8, `attendu au moins 8 fichiers, obtenu ${found.length}`);
-    // src/probe.js est en JS pur, volontairement (voir measure.ts) : c'est le
-    // seul fichier non-.ts du dossier.
+    // src/probe.js et src/probe.py sont les sondes runtime, volontairement
+    // hors TypeScript (voir measure.ts) : les deux seuls fichiers non-.ts du
+    // dossier, et tous deux analysables statiquement (JS et Python le sont).
     const autres = found.filter(f => !f.endsWith('.ts'));
-    assert.deepStrictEqual(autres.map(f => path.basename(f)), ['probe.js']);
+    assert.deepStrictEqual(autres.map(f => path.basename(f)).sort(), ['probe.js', 'probe.py']);
   });
 
   test('les dossiers exclus ne sont pas parcourus', () => {
@@ -471,6 +476,15 @@ describe('parseMeasureArgs', () => {
   test('un format inconnu est refusé', () => {
     assert.throws(() => parseMeasureArgs(['--format', 'xml', 'bench.js']), /Format inconnu/);
   });
+
+  test('--python fixe l\'exécutable, absent par défaut', () => {
+    assert.strictEqual(parseMeasureArgs(['bench.py']).python, undefined);
+    assert.strictEqual(parseMeasureArgs(['--python', 'python3.12', 'bench.py']).python, 'python3.12');
+  });
+
+  test('--python sans valeur est refusé', () => {
+    assert.throws(() => parseMeasureArgs(['--python']), /Exécutable Python manquant/);
+  });
 });
 
 describe('measure : exécution réelle du binaire', () => {
@@ -532,3 +546,36 @@ describe('measure : exécution réelle du binaire', () => {
     assert.ok(bas.raw.cpuUserUs > 0 && haut.raw.cpuUserUs > 0);
   });
 });
+
+describe(
+  'measure : exécution réelle sur Python',
+  { skip: !pythonAvailable && 'python introuvable sur cette machine' },
+  () => {
+    const BENCH_PY = path.join('fixtures', 'bench.py');
+
+    test('un script .py est détecté et mesuré sans option supplémentaire', () => {
+      const r = run(['measure', BENCH_PY]);
+      assert.strictEqual(r.code, 0);
+      assert.match(r.stdout, /Mesure de/);
+      assert.match(r.stdout, /Énergie\s+≈ [\d,.]+ Wh/);
+    });
+
+    test('le code de sortie reflète celui du script Python mesuré', () => {
+      const failing = path.join('fixtures', 'measure-fail.py');
+      const r = run(['measure', failing]);
+      assert.strictEqual(r.code, 3);
+    });
+
+    test('--python vise un exécutable précis', () => {
+      const r = run(['measure', '--python', PYTHON, '--format', 'json', BENCH_PY]);
+      assert.strictEqual(r.code, 0);
+      assert.ok(JSON.parse(r.stdout).raw.cpuUserUs > 0);
+    });
+
+    test('un exécutable Python inconnu sort en code 2 avec un message exploitable', () => {
+      const r = run(['measure', '--python', 'plugin-eco-interprete-inexistant', BENCH_PY]);
+      assert.strictEqual(r.code, 2);
+      assert.match(r.stderr, /introuvable/);
+    });
+  }
+);

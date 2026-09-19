@@ -1,6 +1,7 @@
 // Copie dans out/ les fichiers que `tsc` ne compile pas mais dont l'extension
-// a besoin au runtime : les grammaires WASM du parseur, et la sonde de mesure
-// runtime (src/probe.js, JS pur — voir measure.ts).
+// a besoin au runtime : les grammaires WASM du parseur, et les sondes de
+// mesure runtime (src/probe.js, src/probe.py — voir measure.ts). Aucune des
+// deux ne passe par tsc : la première est du JS pur, la seconde du Python.
 //
 // À l'exécution, l'extension résout les WASM depuis context.extensionUri :
 // node_modules n'est pas fiable dans un .vsix installé, out/ l'est.
@@ -31,7 +32,7 @@ for (const source of WASM_SOURCES) {
   console.log(`copié ${path.basename(source)} → out/wasm/`);
 }
 
-const probeSource = path.join(__dirname, '..', 'src', 'probe.js');
-const probeDest = path.join(outDir, 'probe.js');
-fs.copyFileSync(probeSource, probeDest);
-console.log('copié probe.js → out/');
+for (const probe of ['probe.js', 'probe.py']) {
+  fs.copyFileSync(path.join(__dirname, '..', 'src', probe), path.join(outDir, probe));
+  console.log(`copié ${probe} → out/`);
+}
