@@ -88,11 +88,10 @@ Le score part de 100, chaque détection retranche sa pénalité, et le reste don
 la lettre : **A** ≥ 90, **B** ≥ 75, **C** ≥ 55, **D** ≥ 35, **E** en dessous.
 
 Sur un scan de projet, la note globale est la moyenne des **seuls fichiers qui
-présentent au moins une alerte**. Les fichiers sains n'y entrent pas : sans
-cela, une poignée de modules utilitaires vides suffisait à ramener un projet à
-**A** en noyant le fichier qui pose réellement problème. Le nombre de fichiers
-concernés est affiché à côté de la lettre, et le pire d'entre eux est mis en
-avant — une lettre unique ne peut pas désigner un endroit.
+présentent au moins une alerte** — sinon une poignée de modules utilitaires
+vides suffirait à ramener un projet à **A** en noyant le fichier qui pose
+réellement problème. Le nombre de fichiers concernés est affiché à côté de la
+lettre, et le pire d'entre eux est mis en avant.
 
 ## Développement
 
@@ -259,36 +258,19 @@ et le CO₂ que rend `plugin-eco measure` sont un axe séparé, mesuré plutôt 
 deviné, et n'entrent délibérément pas dans le calcul de la lettre : les
 mélanger casserait la comparabilité qui fait la valeur de l'étiquette.
 
-**La mesure runtime encadre le script mesuré, elle ne l'instrumente pas.**
-`node --require probe.js script.js` précharge la sonde dans le processus
-mesuré ; `python probe.py script.py` l'exécute à la place du script, qu'elle
-relance elle-même via `runpy`. Les deux mesurent le processus réel (CPU, RAM,
-durée) sans transformer le script mesuré ni ajouter de dépendance d'exécution,
-et écrivent le même résultat en JSON. Java (prochaine étape) suivra le même
-principe, adapté à son propre mécanisme de lancement.
+**La mesure runtime encadre le script mesuré, elle ne l'instrumente pas.** Une
+sonde préchargée lit le processus réel (CPU, RAM, durée) sans transformer le
+script ni ajouter de dépendance d'exécution — Node et Python chacun selon leur
+propre mécanisme de préchargement.
 
-**Python n'a pas d'équivalent à `node --require <chemin arbitraire>`.**
-`sitecustomize.py` — l'option envisagée d'abord — impose un nom de fichier
-fixe posé sur un `PYTHONPATH` dédié : il faudrait le fusionner avec celui de
-l'utilisateur sans l'écraser, et il masquerait un `sitecustomize.py` que son
-environnement aurait déjà. Le wrapper (même principe que `python -m
-cProfile`) évite les deux : un chemin de fichier libre, comme `probe.js`.
-
-**RSS Python : la bibliothèque standard par plateforme, pas `psutil`.**
-`resource.getrusage()` n'existe pas sous Windows. Plutôt qu'une dépendance
-unifiée — qui s'installerait dans l'environnement de *l'utilisateur final*,
-puisque la sonde tourne dans son processus, pas dans celui du plugin —
-`probe.py` utilise `ctypes` + `GetProcessMemoryInfo` (psapi.dll) sous Windows
-et `resource.getrusage().ru_maxrss` sous Linux/macOS.
+**RSS Python : la bibliothèque standard par plateforme, pas `psutil`.** La
+sonde tourne dans le processus de *l'utilisateur final* : une dépendance
+unifiée s'installerait chez lui, pas chez nous.
 
 **Seul `measure` exécute du code, et seulement sur commande.** L'analyse
-statique ne fait que lire : elle tourne à la frappe, à la sauvegarde, sur tout
-un workspace, sans jamais lancer de processus. `plugin-eco measure` est
-l'unique exception, réservée au CLI : l'extension VSCode et le point d'entrée
-`require('plugin-eco')` ne peuvent pas y mener, et un test le vérifie sur le
-code packagé. Les sondes elles-mêmes n'écrivent que leur mesure, dans un
-répertoire temporaire privé, et ne dépendent que de leur bibliothèque
-standard respective.
+statique ne fait que lire, à la frappe comme sur tout un workspace ;
+`plugin-eco measure` est l'unique exception, réservée au CLI — l'extension
+VSCode et `require('plugin-eco')` ne peuvent pas y mener.
 
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`
@@ -297,26 +279,17 @@ nombreux langages avec un seul parseur.
 
 **Un descripteur de langage, pas des conditions dispersées.** Tout ce qui varie
 d'un langage à l'autre — grammaire, noms de nœuds tree-sitter, règles
-applicables — est déclaré dans `src/languages.ts`. Les autres modules n'y font
-aucune référence : ajouter Python s'est fait sans toucher au moteur de règles,
-seulement à ce descripteur et aux quelques endroits qui lisaient une structure
-d'appel propre à Java (`object`/`name`) plutôt que la forme générique
-`function` → `member_expression`/`attribute` partagée par JS et Python.
+applicables — est déclaré dans `src/languages.ts` ; ajouter un langage n'y
+touche que ce descripteur, jamais le moteur de règles.
 
 **Le contexte d'exécution se déduit du code, pas des chemins.** Un `setInterval`
 de *polling* coûte une fois sur un serveur et autant de fois qu'il y a de
-visiteurs dans un navigateur : le plugin doit savoir où tourne le fichier. Il le
-lit dans l'arbre déjà parsé — imports de modules Node d'un côté, globales du
-navigateur et JSX de l'autre — plutôt que d'imposer une convention de dossiers,
-qui diffère à chaque framework. Seuls les indices francs comptent, et des
-indices contradictoires donnent « indéterminé » : en rendu côté serveur, un
-fichier tourne réellement des deux côtés.
+visiteurs dans un navigateur : le plugin le lit dans l'arbre déjà parsé plutôt
+que d'imposer une convention de dossiers, qui diffère à chaque framework.
 
-**Deux grammaires pour JS/TS, pas trois.** `tsx` est un sur-ensemble de
-`javascript` et couvre `.js`, `.jsx` et `.tsx`. Mais elle ne peut pas remplacer
-`typescript` pour les `.ts` : elle lit l'assertion `<Type>valeur` comme une
-ouverture JSX et perd la suite du fichier. Mesuré plutôt que supposé — un `.ts`
-contenant une telle assertion voyait ses trois boucles disparaître.
+**Deux grammaires pour JS/TS, pas trois.** `tsx` couvre `.js`, `.jsx` et
+`.tsx`, mais pas `.ts` : elle lit l'assertion `<Type>valeur` comme une
+ouverture JSX et perd le reste du fichier.
 
 **Désactiver une règle est un réglage, pas un commentaire dans le code ni une
 quick fix.** Une entrée dans `disabledRules` (éditeur) ou `--ignore-rule` (CLI)
@@ -334,9 +307,7 @@ sur la ligne fautive. À reconsidérer si le suivi dans le temps (alertes
 ouvertes/résolues d'un run à l'autre) devient un besoin démontré.
 
 **Les grammaires WASM sont copiées dans `out/` au build.** Une extension
-installée n'a pas les `node_modules` de développement sous la main : le script
-`scripts/copy-wasm.js` place le runtime tree-sitter et la grammaire Java dans
-`out/wasm/`, que l'extension résout depuis sa propre racine.
+installée n'a pas les `node_modules` de développement sous la main.
 
 ## État
 
