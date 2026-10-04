@@ -29,11 +29,12 @@ describe('contenu du paquet npm', () => {
   const files = packedFiles();
 
   test('rien de local ni de confidentiel n\'est publié', () => {
-    // CLAUDE.md contient le journal de décisions, des chemins machine et des
-    // références à d'autres dépôts privés ; .claude/ contient la configuration
-    // locale de l'outillage. Les deux partaient avant ce correctif.
+    // CLAUDE.md et JOURNAL.md contiennent les notes de travail, des chemins
+    // machine et des références à d'autres dépôts privés ; .claude/ contient la
+    // configuration locale de l'outillage. Tous sont ignorés par git, donc
+    // absents en CI : seule une publication depuis un poste les embarquerait.
     const interdits = [
-      'CLAUDE.md', '.claude/', '.vscode/', '.github/',
+      'CLAUDE.md', 'CLAUDE.local.md', 'JOURNAL.md', '.claude/', '.vscode/', '.github/',
       '.env', '.npmrc', 'tsconfig.json', '.vscodeignore', '.npmignore',
     ];
     for (const motif of interdits) {
