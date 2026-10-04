@@ -2,6 +2,8 @@
 .claude/**
 .github/**
 CLAUDE.md
+CLAUDE.local.md
+JOURNAL.md
 .gitignore
 scripts/**
 samples/**
