@@ -6,6 +6,17 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+## [0.4.0] — 2026-10-12
+
+### Ajouté
+- Publication sur le Marketplace VSCode, sous l'éditeur `tekateyy`
+  (ID de l'extension : `tekateyy.plugin-eco`). Jusqu'ici, seul le paquet npm
+  était publié.
+
+### Corrigé
+- Les notes de travail locales ne sont plus incluses dans les paquets npm et
+  `.vsix`.
+
 ## [0.3.0] — 2026-09-18
 
 ### Ajouté
