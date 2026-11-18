@@ -6,6 +6,12 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+### Ajouté
+- Analyse statique du PHP (`.php`) : boucle imbriquée et requête SQL sans
+  `LIMIT`, chaînes interpolées, heredoc et nowdoc compris.
+- `plugin-eco measure` mesure aussi un script PHP, avec `--php <exécutable>`
+  pour choisir l'interpréteur.
+
 ## [0.4.0] — 2026-10-12
 
 ### Ajouté

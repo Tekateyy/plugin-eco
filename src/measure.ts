@@ -10,8 +10,9 @@
  * Python exécute `probe.py <script>`, qui s'installe puis lance le script via
  * `runpy` — un wrapper plutôt qu'un `sitecustomize.py` posé sur un
  * `PYTHONPATH` dédié, pour ne rien avoir à fusionner avec celui de
- * l'utilisateur ni masquer le sien s'il en a un. Dans les deux cas, la sonde
- * écrit `RawMeasurement` en JSON dans un fichier temporaire à la sortie du
+ * l'utilisateur ni masquer le sien s'il en a un. PHP charge `probe.php` via
+ * `php -d auto_prepend_file=…`, exécuté avant le script dans le même processus.
+ * Dans les trois cas, la sonde écrit `RawMeasurement` en JSON dans un fichier temporaire à la sortie du
  * processus ; ce module le lit et le convertit en Wh/CO₂ via des coefficients
  * standards, explicitement affichés en résultat.
  *
@@ -32,11 +33,19 @@ export interface RawMeasurement {
   maxRssBytes: number | null;
 }
 
-export type Language = 'node' | 'python';
+export type Language = 'node' | 'python' | 'php';
 
-/** Langage déduit de l'extension ; tout ce qui n'est pas `.py` est traité comme Node. */
+/** Langage déduit de l'extension ; tout ce qui n'est ni `.py` ni `.php` est traité comme Node. */
 export function languageFor(script: string): Language {
-  return path.extname(script) === '.py' ? 'python' : 'node';
+  const ext = path.extname(script).toLowerCase();
+  if (ext === '.py') return 'python';
+  if (ext === '.php') return 'php';
+  return 'node';
+}
+
+/** `php` partout : l'exécutable porte ce nom sous Windows comme ailleurs. */
+export function defaultPhpInterpreter(): string {
+  return 'php';
 }
 
 /** `python` sous Windows (où `python3` n'existe généralement pas), `python3` ailleurs. */
@@ -52,6 +61,8 @@ export interface MeasureOptions {
   runs?: number;
   /** Exécutable Python à lancer pour un script `.py` ; défaut : `defaultPythonInterpreter()`. */
   pythonInterpreter?: string;
+  /** Exécutable PHP à lancer pour un script `.php` ; défaut : `defaultPhpInterpreter()`. */
+  phpInterpreter?: string;
 }
 
 export interface MeasureResult {
@@ -123,6 +134,12 @@ function commandFor(script: string, opts: MeasureOptions): { command: string; ar
     const probePath = opts.probePath ?? path.join(__dirname, 'probe.py');
     const python = opts.pythonInterpreter ?? defaultPythonInterpreter();
     return { command: python, args: [probePath, script, ...scriptArgs] };
+  }
+
+  if (lang === 'php') {
+    const probePath = opts.probePath ?? path.join(__dirname, 'probe.php');
+    const php = opts.phpInterpreter ?? defaultPhpInterpreter();
+    return { command: php, args: ['-d', `auto_prepend_file=${probePath}`, script, ...scriptArgs] };
   }
 
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');

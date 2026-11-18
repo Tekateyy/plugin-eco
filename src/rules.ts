@@ -477,10 +477,13 @@ function isThrottled(node: Parser.SyntaxNode | undefined): boolean {
 /**
  * Retire les délimiteurs d'un littéral de chaîne, préfixe compris — Python
  * autorise jusqu'à deux lettres (`f"..."`, `rb"..."`) et des guillemets triples
- * (`"""..."""`), absents des autres grammaires supportées.
+ * (`"""..."""`), PHP des heredoc/nowdoc (`<<<SQL` … `SQL`), absents des
+ * autres grammaires supportées.
  */
 function unquote(text: string): string {
   return text
+    .replace(/^<<<['"]?\w+['"]?\r?\n/, '')
+    .replace(/\r?\n\s*\w+$/, '')
     .replace(/^[a-zA-Z]{0,2}['"`]{1,3}/, '')
     .replace(/['"`]{1,3}$/, '');
 }

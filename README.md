@@ -1,7 +1,7 @@
 # plugin-eco
 
 Extension VSCode qui note la sobriété énergétique du code **Java, JavaScript,
-TypeScript et Python**, avec une étiquette **A → E** empruntée au DPE des
+TypeScript, Python et PHP**, avec une étiquette **A → E** empruntée au DPE des
 logements.
 
 L'analyse est statique et locale : le fichier est parsé à la frappe, les
@@ -65,7 +65,8 @@ ramasse-miettes générationnel rend l'allocation à courte durée de vie bon
 marché ; CPython, lui, réalloue `s += t` sur place quand la chaîne n'a qu'une
 référence, et `total += 1` en boucle est un idiome trop courant pour être
 signalé. Les deux langages arrivent à la même exclusion par des chemins
-différents.
+différents. PHP, qui étend `$s .= $t` sur place pour la même raison que
+CPython, n'hérite que de la boucle imbriquée et de la requête SQL sans `LIMIT`.
 
 Une règle restreinte à un côté ne se déclenche **jamais** sur un fichier dont le
 contexte est indéterminé : sans certitude, le plugin se tait.
@@ -103,7 +104,8 @@ npm test
 Puis `F5` dans VSCode pour lancer une fenêtre de test, et ouvrir un des exemples
 de `samples/` : `Example.java` déclenche les six règles Java, `example.ts` montre
 ce qui s'applique hors contexte connu, `example-web.tsx` déclenche les règles
-navigateur, `example.py` déclenche les quatre règles portées à Python.
+navigateur, `example.py` déclenche les quatre règles portées à Python,
+`example.php` les deux règles portées à PHP.
 
 Les tests utilisent `node:test`, sans dépendance supplémentaire, et s'exécutent
 sur le code compilé — donc sur ce qui part réellement dans l'extension. Ils
@@ -188,7 +190,7 @@ absent, et rien n'y importe `vscode`.
 ## Mesure à l'exécution (prototype)
 
 L'étiquette A–E est une estimation statique. `plugin-eco measure` mesure pour
-de vrai, sur un script Node ou Python qui se termine de lui-même — pas un
+de vrai, sur un script Node, Python ou PHP qui se termine de lui-même — pas un
 serveur — en l'exécutant réellement, langage détecté par l'extension du
 fichier :
 
@@ -240,8 +242,13 @@ npx plugin-eco measure script.py
 npx plugin-eco measure --python .venv/bin/python script.py
 ```
 
-Prototype volontairement limité à Node et Python. Étape suivante si le modèle
-tient : Java, selon le même principe (une sonde exécutée à la place du
+Pour un script `.php`, `--php <exécutable>` fait de même (par défaut, `php`).
+La sonde PHP rapporte comme mémoire le pic réservé par PHP
+(`memory_get_peak_usage(true)`), pas le pic de mémoire résidente du processus :
+PHP n'offre pas de lecture portable de ce dernier sans extension.
+
+Prototype volontairement limité à Node, Python et PHP. Étape suivante si le
+modèle tient : Java, selon le même principe (une sonde exécutée à la place du
 programme mesuré).
 
 ## Choix techniques
@@ -311,9 +318,9 @@ installée n'a pas les `node_modules` de développement sous la main.
 
 ## État
 
-Analyse statique de Java, JavaScript, TypeScript et Python, avec un jeu de
+Analyse statique de Java, JavaScript, TypeScript, Python et PHP, avec un jeu de
 règles web qui distingue le code serveur du code navigateur. Mesure à
-l'exécution (Wh et CO₂) en prototype, pour Node et Python. Java et le portage
+l'exécution (Wh et CO₂) en prototype, pour Node, Python et PHP. Java et le portage
 IntelliJ sont les étapes suivantes.
 
 Le détail des changements par version est dans [CHANGELOG.md](CHANGELOG.md).

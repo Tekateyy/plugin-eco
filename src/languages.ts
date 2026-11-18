@@ -131,6 +131,25 @@ const PY_NODES: NodeNames = {
   await: ['await'],
 };
 
+// PHP : `foreach` est la boucle courante, et `new` existe (object_creation_expression),
+// mais aucune règle PHP ne lit ce nœud (voir PHP_RULES). Pas d'`await` : PHP est
+// synchrone. Les noms de fonction anonyme diffèrent de JS : `anonymous_function_creation_expression`
+// (mesuré sur tree-sitter-php, pas `anonymous_function`).
+// Les chaînes sont de quatre sortes : `string` ('...'), `encapsed_string` ("..."
+// avec interpolation), `heredoc` et `nowdoc`.
+const PHP_NODES: NodeNames = {
+  loops: ['for_statement', 'foreach_statement', 'while_statement', 'do_statement'],
+  objectCreation: ['object_creation_expression'],
+  call: ['function_call_expression', 'member_call_expression', 'scoped_call_expression'],
+  stringLiteral: ['string', 'encapsed_string', 'heredoc', 'nowdoc'],
+  compoundAssignment: ['augmented_assignment_expression'],
+  functions: [
+    'function_definition', 'method_declaration',
+    'anonymous_function_creation_expression', 'arrow_function',
+  ],
+  await: [],
+};
+
 // --- Règles ---------------------------------------------------------------
 
 const JAVA_RULES: RuleId[] = [
@@ -182,6 +201,27 @@ const PY_RULES: RuleId[] = [
   'await-in-loop',
 ];
 
+/**
+ * PHP : les deux règles qui se transposent sans heuristique nouvelle.
+ *
+ * Volontairement absentes, chacune pour sa raison :
+ *  - `string-concat-in-loop` : PHP étend `$s .= $t` sur place quand la chaîne n'a
+ *    qu'une référence (même raison que CPython), et `$out .= …` en boucle est
+ *    l'idiome de construction d'une page ;
+ *  - `object-creation-in-loop` : la mémoire d'une requête est libérée à la
+ *    décrémentation du compteur de références, l'allocation est bon marché ;
+ *  - `regex-compile-in-loop` : `preg_*` met les motifs compilés en cache, il n'y
+ *    a pas d'étape de compilation à sortir de la boucle ;
+ *  - `blocking-io-in-loop` : `while (($l = fgets($f)) !== false)` est la façon
+ *    normale de lire un fichier, la règle ferait des faux positifs (même cas que
+ *    Python). La vraie cible, la requête SQL en boucle (N+1), est à concevoir ;
+ *  - `await-in-loop` et les règles web : PHP est synchrone et tourne côté serveur.
+ */
+const PHP_RULES: RuleId[] = [
+  'nested-loops',
+  'sql-without-limit',
+];
+
 // --- Descripteurs ---------------------------------------------------------
 
 export const LANGUAGES: LanguageSpec[] = [
@@ -231,6 +271,16 @@ export const LANGUAGES: LanguageSpec[] = [
     rules: PY_RULES,
     // Python n'a pas de moitié navigateur, comme Java : c'est du serveur par
     // construction, dispensé de l'inférence client/serveur.
+    fixedContext: 'server',
+  },
+  {
+    label: 'PHP',
+    grammarFile: 'tree-sitter-php.wasm',
+    vscodeLanguageIds: ['php'],
+    extensions: ['.php'],
+    nodes: PHP_NODES,
+    rules: PHP_RULES,
+    // Pas de moitié navigateur : du serveur par construction.
     fixedContext: 'server',
   },
 ];

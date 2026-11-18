@@ -1,7 +1,7 @@
 // Copie dans out/ les fichiers que `tsc` ne compile pas mais dont l'extension
 // a besoin au runtime : les grammaires WASM du parseur, et les sondes de
-// mesure runtime (src/probe.js, src/probe.py — voir measure.ts). Aucune des
-// deux ne passe par tsc : la première est du JS pur, la seconde du Python.
+// mesure runtime (src/probe.js, src/probe.py, src/probe.php — voir measure.ts).
+// Aucune ne passe par tsc : du JS pur, du Python et du PHP.
 //
 // À l'exécution, l'extension résout les WASM depuis context.extensionUri :
 // node_modules n'est pas fiable dans un .vsix installé, out/ l'est.
@@ -20,6 +20,7 @@ const WASM_SOURCES = [
   require.resolve('tree-sitter-wasms/out/tree-sitter-tsx.wasm'),
   require.resolve('tree-sitter-wasms/out/tree-sitter-typescript.wasm'),
   require.resolve('tree-sitter-wasms/out/tree-sitter-python.wasm'),
+  require.resolve('tree-sitter-wasms/out/tree-sitter-php.wasm'),
 ];
 
 const outDir = path.join(__dirname, '..', 'out');
@@ -32,7 +33,7 @@ for (const source of WASM_SOURCES) {
   console.log(`copié ${path.basename(source)} → out/wasm/`);
 }
 
-for (const probe of ['probe.js', 'probe.py']) {
+for (const probe of ['probe.js', 'probe.py', 'probe.php']) {
   fs.copyFileSync(path.join(__dirname, '..', 'src', probe), path.join(outDir, probe));
   console.log(`copié ${probe} → out/`);
 }
