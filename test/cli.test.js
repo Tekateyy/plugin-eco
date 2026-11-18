@@ -127,12 +127,12 @@ describe('collectPaths', () => {
   test('un dossier est parcouru récursivement', () => {
     const found = collectPaths(path.join(ROOT, 'src'));
     assert.ok(found.length >= 8, `attendu au moins 8 fichiers, obtenu ${found.length}`);
-    // src/probe.js, src/probe.py et src/Probe.java sont les sondes runtime,
+    // src/probe.js, src/probe.py, src/probe.php et src/Probe.java sont les sondes runtime,
     // volontairement hors TypeScript (voir measure.ts) : les seuls fichiers
-    // non-.ts du dossier, et tous analysables statiquement (JS, Python et Java
-    // sont des langages supportés).
+    // non-.ts du dossier, et tous analysables statiquement (JS, Python, PHP et
+    // Java sont des langages supportés).
     const autres = found.filter(f => !f.endsWith('.ts'));
-    assert.deepStrictEqual(autres.map(f => path.basename(f)).sort(), ['Probe.java', 'probe.js', 'probe.py']);
+    assert.deepStrictEqual(autres.map(f => path.basename(f)).sort(), ['Probe.java', 'probe.js', 'probe.php', 'probe.py']);
   });
 
   test('les dossiers exclus ne sont pas parcourus', () => {
@@ -352,7 +352,8 @@ describe('exécution réelle du binaire', () => {
     assert.strictEqual(r.code, 0);
     const report = JSON.parse(r.stdout);
     assert.strictEqual(report.global.letter, 'D');
-    assert.strictEqual(report.filesWithFindings, 4);
+    // Un fichier par langage d'exemple : Java, TS, TSX, Python, PHP.
+    assert.strictEqual(report.filesWithFindings, 5);
     assert.ok(Array.isArray(report.files));
     // Le pire fichier vient en premier.
     assert.strictEqual(report.files[0].score.letter, 'E');

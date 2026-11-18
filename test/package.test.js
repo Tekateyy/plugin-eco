@@ -61,10 +61,10 @@ describe('contenu du paquet npm', () => {
       'package.json', 'README.md', 'LICENSE',
       'out/index.js', 'out/index.d.ts',
       'out/cli.js', 'out/rules.js', 'out/scoring.js', 'out/context.js',
-      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py',
+      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py', 'out/probe.php',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
       'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
-      'out/wasm/tree-sitter-python.wasm',
+      'out/wasm/tree-sitter-python.wasm', 'out/wasm/tree-sitter-php.wasm',
     ]) {
       assert.ok(files.includes(requis), `${requis} manque au paquet`);
     }
@@ -133,10 +133,10 @@ describe('contenu du .vsix', () => {
       'package.json', 'README.md', 'LICENSE', 'CHANGELOG.md', 'resources/icon.png',
       'out/extension.js', 'out/webview.js', 'out/workspace.js',
       'out/rules.js', 'out/scoring.js', 'out/context.js',
-      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py',
+      'out/languages.js', 'out/parser.js', 'out/measure.js', 'out/probe.js', 'out/probe.py', 'out/probe.php',
       'out/wasm/tree-sitter.wasm', 'out/wasm/tree-sitter-java.wasm',
       'out/wasm/tree-sitter-tsx.wasm', 'out/wasm/tree-sitter-typescript.wasm',
-      'out/wasm/tree-sitter-python.wasm',
+      'out/wasm/tree-sitter-python.wasm', 'out/wasm/tree-sitter-php.wasm',
     ]) {
       assert.ok(files.includes(requis), `${requis} manque au .vsix`);
     }
@@ -242,6 +242,16 @@ describe('frontière d\'exécution', () => {
       assert.ok(stdlib.includes(mod), `import inattendu dans probe.py : ${mod}`);
     }
     assert.doesNotMatch(probePy, /\bsubprocess\b|\bsocket\b|\burllib\b/);
+  });
+
+  test('la sonde PHP ne lance rien et n\'écrit rien sur la sortie', () => {
+    // Elle tourne dans le processus de l'utilisateur : ni exécution de
+    // commande, ni réseau, ni sortie — seulement son fichier de mesure.
+    const probePhp = fs.readFileSync(path.join(OUT, 'probe.php'), 'utf8');
+    assert.doesNotMatch(probePhp, /\b(exec|shell_exec|system|passthru|proc_open|popen|curl_init|fsockopen)\s*\(/);
+    assert.doesNotMatch(probePhp, /\b(echo|print|var_dump|print_r)\b\s*[(\w$'"]/);
+    // Une balise fermante suivie d'un saut de ligne enverrait ce saut de ligne sur stdout.
+    assert.doesNotMatch(probePhp, /\?>/);
   });
 
   test('charger la bibliothèque ne charge pas measure.js', () => {

@@ -395,6 +395,8 @@ export interface MeasureCliOptions {
   runs: number;
   /** Exécutable Python pour un script `.py` (défaut : `defaultPythonInterpreter()`). */
   python?: string;
+  /** Exécutable PHP pour un script `.php` (défaut : `php`). */
+  php?: string;
   help: boolean;
 }
 
@@ -405,12 +407,13 @@ l'estime en Wh et gCO₂. Complète l'estimation statique : celle-ci reste
 l'étiquette A–E comparable entre fichiers, la mesure est un axe à part, avec
 ses hypothèses de conversion affichées à côté du résultat.
 
-Node (.js, .mjs, .cjs...) et Python (.py) sont supportés, détectés par
-l'extension du script.
+Node (.js, .mjs, .cjs...), Python (.py) et PHP (.php) sont supportés, détectés
+par l'extension du script.
 
 Options
   --runs <n>               Exécutions successives, médiane retenue (défaut : 1)
   --python <exécutable>    Interpréteur pour un script .py (défaut : ${defaultPythonInterpreter()} sur cet OS)
+  --php <exécutable>       Interpréteur pour un script .php (défaut : php)
   --tdp <watts>            TDP du processeur (défaut : ${DEFAULT_TDP_WATTS} W)
   --cores <n>              Cœurs sur lesquels le TDP se répartit (défaut : détecté)
   --carbon <gCO2/kWh>      Intensité carbone du réseau (défaut : ${DEFAULT_GCO2_PER_KWH}, France)
@@ -427,7 +430,8 @@ rendu tel quel, avec la médiane des exécutions déjà faites.
 
 Exemples
   plugin-eco measure --runs 5 mon-script.js -- --iterations 100000
-  plugin-eco measure --python python3.12 mon-script.py`;
+  plugin-eco measure --python python3.12 mon-script.py
+  plugin-eco measure --php /usr/bin/php8.3 mon-script.php`;
 
 export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
   const options: MeasureCliOptions = {
@@ -481,6 +485,12 @@ export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
         throw new Error(`Exécutable Python manquant après --python.`);
       }
       options.python = value;
+    } else if (arg === '--php') {
+      const value = argv[++i];
+      if (!value) {
+        throw new Error(`Exécutable PHP manquant après --php.`);
+      }
+      options.php = value;
     } else if (arg === '--') {
       options.scriptArgs.push(...argv.slice(i + 1));
       break;
@@ -554,7 +564,8 @@ export async function runMeasureCommand(argv: string[]): Promise<number> {
   let result: MeasureResult;
   try {
     result = runMeasured(options.script, {
-      args: options.scriptArgs, runs: options.runs, pythonInterpreter: options.python,
+      args: options.scriptArgs, runs: options.runs,
+      pythonInterpreter: options.python, phpInterpreter: options.php,
     });
   } catch (err) {
     process.stderr.write(`Échec de la mesure : ${(err as Error).message}\n`);

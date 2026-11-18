@@ -6,7 +6,7 @@ const { spawnSync } = require('node:child_process');
 
 const {
   runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH,
-  median, medianMeasurement, languageFor, defaultPythonInterpreter,
+  median, medianMeasurement, languageFor, defaultPythonInterpreter, defaultPhpInterpreter,
 } = require('../out/measure');
 
 const ROOT = path.join(__dirname, '..');
@@ -17,6 +17,9 @@ const BENCH_PY = path.join(ROOT, 'fixtures', 'bench.py');
 // les tests Python se désactivent proprement plutôt que d'échouer si absent.
 const PYTHON = defaultPythonInterpreter();
 const pythonAvailable = !spawnSync(PYTHON, ['--version']).error;
+const BENCH_PHP = path.join(ROOT, 'fixtures', 'bench.php');
+const PHP = defaultPhpInterpreter();
+const phpAvailable = !spawnSync(PHP, ['--version']).error;
 
 // --- estimate() : fonction pure, aucune exécution -------------------------
 
@@ -113,6 +116,11 @@ describe('medianMeasurement', () => {
 describe('languageFor', () => {
   test('.py est détecté comme Python', () => {
     assert.strictEqual(languageFor('script.py'), 'python');
+  });
+
+  test('.php est détecté comme PHP, quelle que soit la casse', () => {
+    assert.strictEqual(languageFor('script.php'), 'php');
+    assert.strictEqual(languageFor('SCRIPT.PHP'), 'php');
   });
 
   test('tout le reste est traité comme Node, y compris sans extension connue', () => {
@@ -275,5 +283,83 @@ describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable
   test('--python permet de viser un exécutable précis', () => {
     const { exitCode } = runMeasured(BENCH_PY, { pythonInterpreter: PYTHON });
     assert.strictEqual(exitCode, 0);
+  });
+});
+
+describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cette machine' }, () => {
+  test('mesure un vrai script PHP qui se termine de lui-même', () => {
+    const { raw, exitCode } = runMeasured(BENCH_PHP);
+    assert.strictEqual(exitCode, 0);
+    assert.ok(raw.cpuUserUs > 0, 'du temps CPU user doit avoir été consommé');
+    assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
+    // memory_get_peak_usage(true) : le pic réservé par PHP, jamais nul.
+    assert.ok(raw.maxRssBytes > 0, `mémoire attendue positive, obtenue ${raw.maxRssBytes}`);
+  });
+
+  test('remonte le code de sortie du script PHP mesuré, même après exit()', () => {
+    const failing = path.join(ROOT, 'fixtures', 'measure-fail.php');
+    const { raw, exitCode } = runMeasured(failing);
+    assert.strictEqual(exitCode, 3);
+    assert.ok(raw.wallMs >= 0);
+  });
+
+  test('le script mesuré reçoit ses propres arguments', () => {
+    // Même méthode que pour Python : stdout est hérité, le script écrit donc ce
+    // qu'il observe dans un fichier dont le chemin lui est passé en argument.
+    const echoScript = path.join(ROOT, 'fixtures', 'echo-argv.php');
+    const echoOut = path.join(ROOT, 'fixtures', 'echo-argv-php.out.json');
+    fs.writeFileSync(echoScript, '<?php file_put_contents($argv[1], json_encode($argv));\n');
+    try {
+      const { exitCode } = runMeasured(echoScript, { args: [echoOut, 'b'] });
+      assert.strictEqual(exitCode, 0);
+      const seen = JSON.parse(fs.readFileSync(echoOut, 'utf8'));
+      assert.deepStrictEqual(seen, [echoScript, echoOut, 'b']);
+    } finally {
+      fs.unlinkSync(echoScript);
+      try { fs.unlinkSync(echoOut); } catch { /* pas écrit si le test a échoué avant */ }
+    }
+  });
+
+  test('un script PHP introuvable ne produit aucune mesure', () => {
+    // Contrairement à Node et Python, `php` s'arrête avant d'exécuter le
+    // fichier préchargé quand le script n'existe pas : pas de sonde, pas de JSON.
+    assert.throws(
+      () => runMeasured(path.join(ROOT, 'fixtures', 'inexistant.php')),
+      /aucune mesure/
+    );
+  });
+
+  test('une fonction d\'arrêt du script est comptée dans la mesure', () => {
+    // La sonde s'enregistre depuis une fonction d'arrêt pour passer en dernier.
+    const slowScript = path.join(ROOT, 'fixtures', 'shutdown-slow.php');
+    fs.writeFileSync(slowScript,
+      '<?php register_shutdown_function(function () { usleep(300000); });\n');
+    try {
+      const { raw, exitCode } = runMeasured(slowScript);
+      assert.strictEqual(exitCode, 0);
+      assert.ok(raw.wallMs >= 250, `la durée de la fonction d'arrêt doit compter, obtenu ${raw.wallMs} ms`);
+    } finally {
+      fs.unlinkSync(slowScript);
+    }
+  });
+
+  test('--php permet de viser un exécutable précis', () => {
+    const { exitCode } = runMeasured(BENCH_PHP, { phpInterpreter: PHP });
+    assert.strictEqual(exitCode, 0);
+  });
+
+  test('runs > 1 fonctionne aussi sur PHP', () => {
+    const { exitCode, samples } = runMeasured(BENCH_PHP, { runs: 2 });
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(samples.length, 2);
+  });
+});
+
+describe('runMeasured : PHP absent', () => {
+  test('un interpréteur PHP introuvable lève une erreur exploitable', () => {
+    assert.throws(
+      () => runMeasured(BENCH_PHP, { phpInterpreter: 'plugin-eco-interprete-inexistant' }),
+      /introuvable/
+    );
   });
 });
