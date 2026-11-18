@@ -76,8 +76,9 @@
   },
   "scripts": {
     "copy-wasm": "node scripts/copy-wasm.js",
-    "compile": "tsc -p ./ && npm run copy-wasm",
-    "watch": "npm run copy-wasm && tsc -watch -p ./",
+    "build-java-probe": "node scripts/build-java-probe.js",
+    "compile": "tsc -p ./ && npm run copy-wasm && npm run build-java-probe",
+    "watch": "npm run copy-wasm && npm run build-java-probe && tsc -watch -p ./",
     "test": "npm run compile && node --test",
     "package": "npx @vscode/vsce package",
     "prepublishOnly": "npm run compile && npm test",
