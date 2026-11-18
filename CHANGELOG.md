@@ -6,6 +6,17 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+### Ajouté
+- `plugin-eco measure` mesure aussi un `.jar` exécutable ou un fichier `.java`,
+  avec `--java <exécutable>` pour choisir la JVM (21 ou plus).
+- Un fichier de plus de 1 Mo n'est plus analysé dans l'éditeur : la barre d'état
+  affiche « fichier trop volumineux ». Le CLI l'analyse toujours et prévient que
+  cela peut prendre plusieurs secondes.
+
+### Corrigé
+- Une phrase du type « Select a file from the list » n'est plus prise pour une
+  requête SQL sans `LIMIT`.
+
 ## [0.5.0] — 2026-11-17
 
 ### Ajouté

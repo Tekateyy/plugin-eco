@@ -16,7 +16,7 @@ import { initParser, parseWith } from './parser';
 import { collectFindings, filterDisabled } from './rules';
 import { computeScore, aggregateScore, scoreSummary } from './scoring';
 import { inferContext } from './context';
-import { ALL_RULE_IDS, EXCLUDED_DIRS, RULE_CONTEXTS, specForPath } from './languages';
+import { ALL_RULE_IDS, EXCLUDED_DIRS, MAX_EDITOR_FILE_BYTES, RULE_CONTEXTS, specForPath } from './languages';
 import { FileResult, Finding, RuleId, Score, WorkspaceReport } from './types';
 import {
   runMeasured, estimate, DEFAULT_TDP_WATTS, DEFAULT_WATTS_PER_GB, DEFAULT_GCO2_PER_KWH,
@@ -177,6 +177,13 @@ export async function analyze(
     if (!spec) continue;
 
     const code = fs.readFileSync(file, 'utf8');
+    // Contrairement à l'éditeur, le CLI analyse quand même : on prévient seulement.
+    if (code.length > MAX_EDITOR_FILE_BYTES) {
+      process.stderr.write(
+        `Fichier volumineux (${(code.length / 1e6).toFixed(1)} Mo) : ${file} — ` +
+        `l'analyse peut prendre plusieurs secondes.\n`
+      );
+    }
     const tree = parseWith(code, spec);
     const { context } = inferContext(tree.rootNode, spec);
     const findings = filterDisabled(collectFindings(tree.rootNode, spec, context), ignoreRules);
@@ -397,6 +404,8 @@ export interface MeasureCliOptions {
   python?: string;
   /** Exécutable PHP pour un script `.php` (défaut : `php`). */
   php?: string;
+  /** Exécutable Java pour un `.jar` ou un `.java` (défaut : `java`). */
+  java?: string;
   help: boolean;
 }
 
@@ -407,13 +416,16 @@ l'estime en Wh et gCO₂. Complète l'estimation statique : celle-ci reste
 l'étiquette A–E comparable entre fichiers, la mesure est un axe à part, avec
 ses hypothèses de conversion affichées à côté du résultat.
 
-Node (.js, .mjs, .cjs...), Python (.py) et PHP (.php) sont supportés, détectés
-par l'extension du script.
+Node (.js, .mjs, .cjs...), Python (.py), PHP (.php) et Java (.jar exécutable ou
+.java mono-fichier) sont supportés, détectés par l'extension du script. Java exige
+une JVM 21 ou plus ; pour un .java, la compilation en mémoire est comptée dans la
+mesure. La RAM est le pic de tas, pas un RSS.
 
 Options
   --runs <n>               Exécutions successives, médiane retenue (défaut : 1)
   --python <exécutable>    Interpréteur pour un script .py (défaut : ${defaultPythonInterpreter()} sur cet OS)
   --php <exécutable>       Interpréteur pour un script .php (défaut : php)
+  --java <exécutable>      JVM pour un .jar ou un .java (défaut : java)
   --tdp <watts>            TDP du processeur (défaut : ${DEFAULT_TDP_WATTS} W)
   --cores <n>              Cœurs sur lesquels le TDP se répartit (défaut : détecté)
   --carbon <gCO2/kWh>      Intensité carbone du réseau (défaut : ${DEFAULT_GCO2_PER_KWH}, France)
@@ -431,7 +443,9 @@ rendu tel quel, avec la médiane des exécutions déjà faites.
 Exemples
   plugin-eco measure --runs 5 mon-script.js -- --iterations 100000
   plugin-eco measure --python python3.12 mon-script.py
-  plugin-eco measure --php /usr/bin/php8.3 mon-script.php`;
+  plugin-eco measure --php /usr/bin/php8.3 mon-script.php
+  plugin-eco measure mon-app.jar -- --iterations 1000
+  plugin-eco measure Main.java`;
 
 export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
   const options: MeasureCliOptions = {
@@ -485,6 +499,12 @@ export function parseMeasureArgs(argv: string[]): MeasureCliOptions {
         throw new Error(`Exécutable Python manquant après --python.`);
       }
       options.python = value;
+    } else if (arg === '--java') {
+      const value = argv[++i];
+      if (!value) {
+        throw new Error(`Exécutable Java manquant après --java.`);
+      }
+      options.java = value;
     } else if (arg === '--php') {
       const value = argv[++i];
       if (!value) {
@@ -566,6 +586,7 @@ export async function runMeasureCommand(argv: string[]): Promise<number> {
     result = runMeasured(options.script, {
       args: options.scriptArgs, runs: options.runs,
       pythonInterpreter: options.python, phpInterpreter: options.php,
+      javaInterpreter: options.java,
     });
   } catch (err) {
     process.stderr.write(`Échec de la mesure : ${(err as Error).message}\n`);

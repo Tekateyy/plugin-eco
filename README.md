@@ -190,7 +190,7 @@ absent, et rien n'y importe `vscode`.
 ## Mesure à l'exécution (prototype)
 
 L'étiquette A–E est une estimation statique. `plugin-eco measure` mesure pour
-de vrai, sur un script Node, Python ou PHP qui se termine de lui-même — pas un
+de vrai, sur un script Node, Python, PHP ou Java qui se termine de lui-même — pas un
 serveur — en l'exécutant réellement, langage détecté par l'extension du
 fichier :
 
@@ -247,9 +247,14 @@ La sonde PHP rapporte comme mémoire le pic réservé par PHP
 (`memory_get_peak_usage(true)`), pas le pic de mémoire résidente du processus :
 PHP n'offre pas de lecture portable de ce dernier sans extension.
 
-Prototype volontairement limité à Node, Python et PHP. Étape suivante si le
-modèle tient : Java, selon le même principe (une sonde exécutée à la place du
-programme mesuré).
+Pour Java, `plugin-eco measure app.jar` lance un `.jar` exécutable et
+`plugin-eco measure Main.java` un fichier source unique ; `--java <exécutable>`
+cible une JVM précise. Il faut une JVM 21 ou plus, et la sonde (`out/probe.jar`)
+n'est produite au build que si un JDK est disponible. La mémoire rapportée est le
+pic de tas, pas la mémoire résidente, et le temps CPU comprend le démarrage de la
+JVM (et la compilation, pour un `.java`).
+
+Prototype volontairement limité à Node, Python, PHP et Java.
 
 ## Choix techniques
 
@@ -320,8 +325,7 @@ installée n'a pas les `node_modules` de développement sous la main.
 
 Analyse statique de Java, JavaScript, TypeScript, Python et PHP, avec un jeu de
 règles web qui distingue le code serveur du code navigateur. Mesure à
-l'exécution (Wh et CO₂) en prototype, pour Node, Python et PHP. Java et le portage
-IntelliJ sont les étapes suivantes.
+l'exécution (Wh et CO₂) en prototype, pour Node, Python, PHP et Java.
 
 Le détail des changements par version est dans [CHANGELOG.md](CHANGELOG.md).
 

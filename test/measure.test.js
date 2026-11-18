@@ -7,6 +7,7 @@ const { spawnSync } = require('node:child_process');
 const {
   runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH,
   median, medianMeasurement, languageFor, defaultPythonInterpreter, defaultPhpInterpreter,
+  defaultJavaInterpreter, fromJavaProbe,
 } = require('../out/measure');
 
 const ROOT = path.join(__dirname, '..');
@@ -20,6 +21,14 @@ const pythonAvailable = !spawnSync(PYTHON, ['--version']).error;
 const BENCH_PHP = path.join(ROOT, 'fixtures', 'bench.php');
 const PHP = defaultPhpInterpreter();
 const phpAvailable = !spawnSync(PHP, ['--version']).error;
+const BENCH_JAVA = path.join(ROOT, 'fixtures', 'Bench.java');
+const JAVA = defaultJavaInterpreter();
+const PROBE_JAR = path.join(ROOT, 'out', 'probe.jar');
+// La sonde Java n'existe que si le build a eu un JDK ; la JVM mesurée doit être en 21+.
+const javaAvailable = !spawnSync(JAVA, ['-version']).error
+  && !spawnSync('javac', ['-version']).error
+  && !spawnSync('jar', ['--version']).error
+  && fs.existsSync(PROBE_JAR);
 
 // --- estimate() : fonction pure, aucune exécution -------------------------
 
@@ -320,6 +329,21 @@ describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cett
     }
   });
 
+  test('une sonde dont le chemin contient des espaces est bien préchargée', () => {
+    // La valeur de `-d auto_prepend_file=…` n'est pas guillemetée : ce test
+    // vérifie qu'un répertoire d'installation avec espaces ne la casse pas.
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'plugin-eco php '));
+    try {
+      const probe = path.join(dir, 'probe.php');
+      fs.copyFileSync(path.join(ROOT, 'out', 'probe.php'), probe);
+      const { raw, exitCode } = runMeasured(BENCH_PHP, { probePath: probe });
+      assert.strictEqual(exitCode, 0);
+      assert.ok(raw.cpuUserUs > 0);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('un script PHP introuvable ne produit aucune mesure', () => {
     // Contrairement à Node et Python, `php` s'arrête avant d'exécuter le
     // fichier préchargé quand le script n'existe pas : pas de sonde, pas de JSON.
@@ -361,5 +385,79 @@ describe('runMeasured : PHP absent', () => {
       () => runMeasured(BENCH_PHP, { phpInterpreter: 'plugin-eco-interprete-inexistant' }),
       /introuvable/
     );
+  });
+});
+
+describe('Java : fonctions pures', () => {
+  test('languageFor reconnaît .jar et .java', () => {
+    assert.strictEqual(languageFor('app.jar'), 'java');
+    assert.strictEqual(languageFor('Main.java'), 'java');
+    assert.strictEqual(languageFor('APP.JAR'), 'java');
+  });
+
+  test('fromJavaProbe convertit les compteurs de la sonde', () => {
+    const raw = fromJavaProbe({ cpuTotalNs: 2_500_000, allocatedBytes: 10, peakHeapBytes: 4096 }, 120);
+    assert.deepStrictEqual(raw, { cpuUserUs: 2500, cpuSystemUs: 0, wallMs: 120, maxRssBytes: 4096 });
+  });
+
+  test('une sonde Java absente est signalée clairement, sans lancer de JVM', () => {
+    assert.throws(
+      () => runMeasured(BENCH_JAVA, { probePath: path.join(ROOT, 'fixtures', 'inexistant.jar') }),
+      /sonde Java absente/
+    );
+  });
+});
+
+describe('runMeasured : Java', { skip: !javaAvailable && 'JDK ou out/probe.jar absent' }, () => {
+  test('mesure un .java mono-fichier qui se termine de lui-même', () => {
+    const { raw, exitCode } = runMeasured(BENCH_JAVA);
+    assert.strictEqual(exitCode, 0);
+    assert.ok(raw.cpuUserUs > 0, 'du temps CPU doit avoir été consommé');
+    assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
+    assert.ok(raw.maxRssBytes > 0, `pic de tas attendu positif, obtenu ${raw.maxRssBytes}`);
+  });
+
+  test('remonte le code de sortie du programme Java, même après System.exit()', () => {
+    const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'MeasureFail.java'));
+    assert.strictEqual(exitCode, 3);
+    assert.ok(raw.wallMs >= 0);
+  });
+
+  test('mesure un .jar exécutable et lui transmet ses arguments', () => {
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'plugin-eco-jar-'));
+    try {
+      const src = path.join(dir, 'Echo.java');
+      const out = path.join(dir, 'args.json');
+      fs.writeFileSync(src,
+        'public class Echo { public static void main(String[] a) throws Exception {\n' +
+        '  java.nio.file.Files.writeString(java.nio.file.Paths.get(a[0]), String.join(",", a)); } }\n');
+      const classes = path.join(dir, 'classes');
+      fs.mkdirSync(classes);
+      assert.strictEqual(spawnSync('javac', ['-d', classes, src]).status, 0);
+      const manifest = path.join(dir, 'MANIFEST.MF');
+      fs.writeFileSync(manifest, 'Main-Class: Echo\n');
+      const jar = path.join(dir, 'echo.jar');
+      assert.strictEqual(spawnSync('jar', ['cfm', jar, manifest, '-C', classes, 'Echo.class']).status, 0);
+
+      const { exitCode, raw } = runMeasured(jar, { args: [out, 'b'] });
+      assert.strictEqual(exitCode, 0);
+      assert.ok(raw.maxRssBytes > 0);
+      assert.strictEqual(fs.readFileSync(out, 'utf8'), `${out},b`);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('runs > 1 fonctionne aussi sur Java', () => {
+    const { exitCode, samples } = runMeasured(BENCH_JAVA, { runs: 2 });
+    assert.strictEqual(exitCode, 0);
+    assert.strictEqual(samples.length, 2);
+  });
+
+  test('un fichier .java introuvable produit quand même une mesure et un code d\'échec', () => {
+    // L'agent s'installe avant que le lanceur tente de lire le source : comme
+    // Node et Python, et à l'inverse de PHP.
+    const { exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'Inexistant.java'));
+    assert.notStrictEqual(exitCode, 0);
   });
 });

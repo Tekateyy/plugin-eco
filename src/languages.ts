@@ -312,6 +312,17 @@ export const EXCLUDED_DIRS = [
   '.git', '.gradle', '.idea', '.next', 'coverage', 'vendor',
 ];
 
+/**
+ * Taille au-delà de laquelle l'éditeur n'analyse plus un fichier : 1 Mo.
+ *
+ * Mesuré : ~150 ms pour 72 Ko denses, 6 s pour les 8,9 Mo de `typescript.js` —
+ * le budget « moins d'une seconde » tient bien en dessous de ce seuil. Un fichier
+ * de cette taille est presque toujours généré ou bundlé. Le CLI, lui, analyse
+ * quand même et prévient que cela prendra du temps : à la CI, attendre est
+ * acceptable ; dans l'éditeur, geler la frappe ne l'est pas.
+ */
+export const MAX_EDITOR_FILE_BYTES = 1_000_000;
+
 /** Motif VSCode excluant ces dossiers. */
 export function excludeGlob(): string {
   return `**/{${EXCLUDED_DIRS.join(',')}}/**`;
