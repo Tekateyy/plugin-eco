@@ -15,8 +15,9 @@ const root = path.join(__dirname, '..');
 const source = path.join(root, 'src', 'Probe.java');
 const outJar = path.join(root, 'out', 'probe.jar');
 
-// `getTotalThreadAllocatedBytes()` existe depuis Java 14 ; 17 est le LTS suivant.
-const JAVA_RELEASE = '17';
+// `getTotalThreadAllocatedBytes()` n'existe qu'à partir de Java 21 : c'est le
+// plancher de la sonde, la JVM mesurée doit être en 21 ou plus.
+const JAVA_RELEASE = '21';
 
 function run(command, args) {
   const r = spawnSync(command, args, { encoding: 'utf8' });
