@@ -583,7 +583,7 @@ export async function runMeasureCommand(argv: string[]): Promise<number> {
 
   let result: MeasureResult;
   try {
-    result = runMeasured(options.script, {
+    result = await runMeasured(options.script, {
       args: options.scriptArgs, runs: options.runs,
       pythonInterpreter: options.python, phpInterpreter: options.php,
       javaInterpreter: options.java,

@@ -7,7 +7,7 @@ const { spawnSync } = require('node:child_process');
 const {
   runMeasured, estimate, defaultCoefficients, DEFAULT_GCO2_PER_KWH,
   median, medianMeasurement, languageFor, defaultPythonInterpreter, defaultPhpInterpreter,
-  defaultJavaInterpreter, fromJavaProbe,
+  defaultJavaInterpreter, fromJavaProbe, commandFor,
 } = require('../out/measure');
 
 const ROOT = path.join(__dirname, '..');
@@ -35,13 +35,13 @@ const javaAvailable = !spawnSync(JAVA, ['-version']).error
 describe('estimate', () => {
   const coeffs = { tdpWatts: 65, cores: 8, wattsPerGB: 0.392, gCO2PerKWh: 52 };
 
-  test('zéro CPU et zéro mémoire donnent zéro Wh', () => {
+  test('zéro CPU et zéro mémoire donnent zéro Wh', async () => {
     const est = estimate({ cpuUserUs: 0, cpuSystemUs: 0, wallMs: 0, maxRssBytes: 0 }, coeffs);
     assert.strictEqual(est.wh, 0);
     assert.strictEqual(est.gCO2, 0);
   });
 
-  test('1 heure CPU pleine sur un cœur à 8 W/cœur donne 8 Wh', () => {
+  test('1 heure CPU pleine sur un cœur à 8 W/cœur donne 8 Wh', async () => {
     // 8 cœurs, TDP 65 W → 8,125 W/cœur ; on isole le calcul CPU en mettant la
     // mémoire à zéro pour ne pas mélanger les deux termes.
     const est = estimate(
@@ -52,7 +52,7 @@ describe('estimate', () => {
     assert.ok(Math.abs(est.wh - wattsPerCore) < 1e-9);
   });
 
-  test('la mémoire ne compte que pondérée par la durée réelle', () => {
+  test('la mémoire ne compte que pondérée par la durée réelle', async () => {
     const oneGbOneHour = estimate(
       { cpuUserUs: 0, cpuSystemUs: 0, wallMs: 3600 * 1000, maxRssBytes: 1024 ** 3 },
       coeffs
@@ -66,7 +66,7 @@ describe('estimate', () => {
     assert.ok(Math.abs(oneGbHalfHour.wh - coeffs.wattsPerGB / 2) < 1e-9);
   });
 
-  test('gCO2 dérive de wh via le coefficient carbone', () => {
+  test('gCO2 dérive de wh via le coefficient carbone', async () => {
     const est = estimate(
       { cpuUserUs: 3600 * 1e6, cpuSystemUs: 0, wallMs: 3600 * 1000, maxRssBytes: 0 },
       coeffs
@@ -74,7 +74,7 @@ describe('estimate', () => {
     assert.ok(Math.abs(est.gCO2 - (est.wh / 1000) * coeffs.gCO2PerKWh) < 1e-9);
   });
 
-  test('les hypothèses retenues sont lisibles dans le résultat', () => {
+  test('les hypothèses retenues sont lisibles dans le résultat', async () => {
     const est = estimate({ cpuUserUs: 0, cpuSystemUs: 0, wallMs: 0, maxRssBytes: 0 }, coeffs);
     assert.match(est.hypotheses, /8,1 W\/cœur|8\.1 W\/cœur/);
     assert.match(est.hypotheses, /52 gCO₂\/kWh/);
@@ -82,21 +82,21 @@ describe('estimate', () => {
 });
 
 describe('median', () => {
-  test('impair : retient la valeur centrale', () => {
+  test('impair : retient la valeur centrale', async () => {
     assert.strictEqual(median([3, 1, 2]), 2);
   });
 
-  test('pair : moyenne des deux valeurs centrales', () => {
+  test('pair : moyenne des deux valeurs centrales', async () => {
     assert.strictEqual(median([1, 2, 3, 4]), 2.5);
   });
 
-  test('une seule valeur se retient elle-même', () => {
+  test('une seule valeur se retient elle-même', async () => {
     assert.strictEqual(median([42]), 42);
   });
 });
 
 describe('medianMeasurement', () => {
-  test('agrège chaque champ indépendamment, pas "l\'exécution médiane"', () => {
+  test('agrège chaque champ indépendamment, pas "l\'exécution médiane"', async () => {
     // La mesure au CPU le plus élevé a la RAM la plus basse : une médiane par
     // champ ne doit pas retomber sur l'une des trois mesures telle quelle.
     const samples = [
@@ -109,7 +109,7 @@ describe('medianMeasurement', () => {
     });
   });
 
-  test('maxRssBytes null est ignoré plutôt que traité comme zéro', () => {
+  test('maxRssBytes null est ignoré plutôt que traité comme zéro', async () => {
     const samples = [
       { cpuUserUs: 1, cpuSystemUs: 0, wallMs: 1, maxRssBytes: null },
       { cpuUserUs: 1, cpuSystemUs: 0, wallMs: 1, maxRssBytes: 400 },
@@ -117,22 +117,22 @@ describe('medianMeasurement', () => {
     assert.strictEqual(medianMeasurement(samples).maxRssBytes, 400);
   });
 
-  test('une liste vide est une erreur, pas une mesure à zéro', () => {
+  test('une liste vide est une erreur, pas une mesure à zéro', async () => {
     assert.throws(() => medianMeasurement([]), /aucune mesure/);
   });
 });
 
 describe('languageFor', () => {
-  test('.py est détecté comme Python', () => {
+  test('.py est détecté comme Python', async () => {
     assert.strictEqual(languageFor('script.py'), 'python');
   });
 
-  test('.php est détecté comme PHP, quelle que soit la casse', () => {
+  test('.php est détecté comme PHP, quelle que soit la casse', async () => {
     assert.strictEqual(languageFor('script.php'), 'php');
     assert.strictEqual(languageFor('SCRIPT.PHP'), 'php');
   });
 
-  test('tout le reste est traité comme Node, y compris sans extension connue', () => {
+  test('tout le reste est traité comme Node, y compris sans extension connue', async () => {
     for (const script of ['a.js', 'a.mjs', 'a.cjs', 'a.ts', 'a']) {
       assert.strictEqual(languageFor(script), 'node');
     }
@@ -140,13 +140,13 @@ describe('languageFor', () => {
 });
 
 describe('defaultPythonInterpreter', () => {
-  test('« python » sous Windows, « python3 » ailleurs', () => {
+  test('« python » sous Windows, « python3 » ailleurs', async () => {
     assert.strictEqual(defaultPythonInterpreter(), process.platform === 'win32' ? 'python' : 'python3');
   });
 });
 
 describe('defaultCoefficients', () => {
-  test('détecte le nombre de cœurs et retient le carbone France par défaut', () => {
+  test('détecte le nombre de cœurs et retient le carbone France par défaut', async () => {
     const coeffs = defaultCoefficients();
     assert.ok(coeffs.cores >= 1);
     assert.strictEqual(coeffs.gCO2PerKWh, DEFAULT_GCO2_PER_KWH);
@@ -156,8 +156,8 @@ describe('defaultCoefficients', () => {
 // --- runMeasured() : exécution réelle sous la sonde ------------------------
 
 describe('runMeasured', () => {
-  test('mesure un vrai script Node qui se termine de lui-même', () => {
-    const { raw, exitCode } = runMeasured(BENCH);
+  test('mesure un vrai script Node qui se termine de lui-même', async () => {
+    const { raw, exitCode } = await runMeasured(BENCH);
     assert.strictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs > 0, 'du temps CPU user doit avoir été consommé');
     // Pas de comparaison stricte au temps mur : cpuUsage() cumule tous les
@@ -168,58 +168,58 @@ describe('runMeasured', () => {
     assert.ok(raw.maxRssBytes > 0, 'une mémoire résidente positive est attendue');
   });
 
-  test('ne laisse aucun répertoire temporaire derrière elle', () => {
+  test('ne laisse aucun répertoire temporaire derrière elle', async () => {
     const tmp = require('node:os').tmpdir();
     const ours = () => fs.readdirSync(tmp).filter(f => f.startsWith('plugin-eco-'));
     const before = ours();
-    runMeasured(BENCH);
+    await runMeasured(BENCH);
     assert.deepStrictEqual(ours(), before);
     // Y compris quand la sonde n'a rien écrit : le nettoyage ne dépend pas de
     // la présence du fichier de mesure.
-    assert.throws(() => runMeasured(BENCH, { probePath: path.join(ROOT, 'fixtures', 'silent-probe.js') }));
+    await assert.rejects(() => runMeasured(BENCH, { probePath: path.join(ROOT, 'fixtures', 'silent-probe.js') }));
     assert.deepStrictEqual(ours(), before);
   });
 
-  test('remonte le code de sortie du script mesuré', () => {
+  test('remonte le code de sortie du script mesuré', async () => {
     const failing = path.join(ROOT, 'fixtures', 'measure-fail.js');
-    const { exitCode } = runMeasured(failing);
+    const { exitCode } = await runMeasured(failing);
     assert.strictEqual(exitCode, 3);
   });
 
-  test('un script introuvable produit quand même une mesure (quasi nulle) et un code d\'échec', () => {
+  test('un script introuvable produit quand même une mesure (quasi nulle) et un code d\'échec', async () => {
     // Node échoue à résoudre le module avant d'exécuter la moindre ligne du
     // script, mais la sonde préchargée par --require a déjà tourné : son
     // handler `exit` s'exécute tout de même, d'où une mesure proche de zéro
     // plutôt qu'une absence de mesure.
-    const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'inexistant.js'));
+    const { raw, exitCode } = await runMeasured(path.join(ROOT, 'fixtures', 'inexistant.js'));
     assert.notStrictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs >= 0);
   });
 
-  test('runs > 1 exécute plusieurs fois et rend la médiane, avec chaque échantillon', () => {
-    const { raw, exitCode, samples } = runMeasured(BENCH, { runs: 3 });
+  test('runs > 1 exécute plusieurs fois et rend la médiane, avec chaque échantillon', async () => {
+    const { raw, exitCode, samples } = await runMeasured(BENCH, { runs: 3 });
     assert.strictEqual(exitCode, 0);
     assert.strictEqual(samples.length, 3);
     assert.deepStrictEqual(raw, medianMeasurement(samples));
   });
 
-  test('runs > 1 s\'arrête à la première exécution en échec', () => {
+  test('runs > 1 s\'arrête à la première exécution en échec', async () => {
     const failing = path.join(ROOT, 'fixtures', 'measure-fail.js');
-    const { exitCode, samples } = runMeasured(failing, { runs: 5 });
+    const { exitCode, samples } = await runMeasured(failing, { runs: 5 });
     assert.strictEqual(exitCode, 3);
     assert.strictEqual(samples.length, 1, 'ne doit pas continuer après un échec');
   });
 
-  test('sans sortie produite du tout, runMeasured lève une erreur exploitable', () => {
+  test('sans sortie produite du tout, runMeasured lève une erreur exploitable', async () => {
     // Sonde de substitution qui ne s'accroche à aucun événement : aucun
     // fichier de mesure n'est jamais écrit, ce qui déclenche le chemin
     // défensif de runMeasured plutôt que le cas normal ci-dessus.
     const silentProbe = path.join(ROOT, 'fixtures', 'silent-probe.js');
-    assert.throws(() => runMeasured(BENCH, { probePath: silentProbe }), /aucune mesure/);
+    await assert.rejects(() => runMeasured(BENCH, { probePath: silentProbe }), /aucune mesure/);
   });
 
-  test('un interpréteur introuvable lève une erreur exploitable', () => {
-    assert.throws(
+  test('un interpréteur introuvable lève une erreur exploitable', async () => {
+    await assert.rejects(
       () => runMeasured(BENCH_PY, { pythonInterpreter: 'plugin-eco-interprete-inexistant' }),
       /introuvable/
     );
@@ -232,8 +232,8 @@ describe('runMeasured', () => {
 // sur le PATH de la machine qui exécute les tests.
 
 describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable sur cette machine' }, () => {
-  test('mesure un vrai script Python qui se termine de lui-même', () => {
-    const { raw, exitCode } = runMeasured(BENCH_PY);
+  test('mesure un vrai script Python qui se termine de lui-même', async () => {
+    const { raw, exitCode } = await runMeasured(BENCH_PY);
     assert.strictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs > 0, 'du temps CPU user doit avoir été consommé');
     assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
@@ -243,13 +243,13 @@ describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable
     assert.ok(raw.maxRssBytes > 0, `RSS attendu positif, obtenu ${raw.maxRssBytes}`);
   });
 
-  test('remonte le code de sortie du script Python mesuré', () => {
+  test('remonte le code de sortie du script Python mesuré', async () => {
     const failing = path.join(ROOT, 'fixtures', 'measure-fail.py');
-    const { exitCode } = runMeasured(failing);
+    const { exitCode } = await runMeasured(failing);
     assert.strictEqual(exitCode, 3);
   });
 
-  test('le script mesuré reçoit ses propres arguments et son propre __name__/__file__', () => {
+  test('le script mesuré reçoit ses propres arguments et son propre __name__/__file__', async () => {
     // stdio est hérité par le script mesuré (voir runMeasured) : on ne peut
     // pas lire sa sortie directement, donc le script écrit ce qu'il observe
     // dans un fichier dont le chemin lui est passé en argument.
@@ -262,7 +262,7 @@ describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable
       '',
     ].join('\n'));
     try {
-      const { exitCode } = runMeasured(echoScript, { args: [echoOut, 'b'] });
+      const { exitCode } = await runMeasured(echoScript, { args: [echoOut, 'b'] });
       assert.strictEqual(exitCode, 0);
       const seen = JSON.parse(fs.readFileSync(echoOut, 'utf8'));
       // argv[0] est le chemin du script, comme pour un `python script.py`
@@ -275,29 +275,29 @@ describe('runMeasured : Python', { skip: !pythonAvailable && 'python introuvable
     }
   });
 
-  test('un script Python introuvable produit quand même une mesure et un code d\'échec', () => {
+  test('un script Python introuvable produit quand même une mesure et un code d\'échec', async () => {
     // runpy.run_path lève après que la sonde s'est déjà installée (atexit
     // enregistré avant l'appel) — même comportement que Node avec --require.
-    const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'inexistant.py'));
+    const { raw, exitCode } = await runMeasured(path.join(ROOT, 'fixtures', 'inexistant.py'));
     assert.notStrictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs >= 0);
   });
 
-  test('runs > 1 fonctionne aussi sur Python', () => {
-    const { exitCode, samples } = runMeasured(BENCH_PY, { runs: 2 });
+  test('runs > 1 fonctionne aussi sur Python', async () => {
+    const { exitCode, samples } = await runMeasured(BENCH_PY, { runs: 2 });
     assert.strictEqual(exitCode, 0);
     assert.strictEqual(samples.length, 2);
   });
 
-  test('--python permet de viser un exécutable précis', () => {
-    const { exitCode } = runMeasured(BENCH_PY, { pythonInterpreter: PYTHON });
+  test('--python permet de viser un exécutable précis', async () => {
+    const { exitCode } = await runMeasured(BENCH_PY, { pythonInterpreter: PYTHON });
     assert.strictEqual(exitCode, 0);
   });
 });
 
 describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cette machine' }, () => {
-  test('mesure un vrai script PHP qui se termine de lui-même', () => {
-    const { raw, exitCode } = runMeasured(BENCH_PHP);
+  test('mesure un vrai script PHP qui se termine de lui-même', async () => {
+    const { raw, exitCode } = await runMeasured(BENCH_PHP);
     assert.strictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs > 0, 'du temps CPU user doit avoir été consommé');
     assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
@@ -305,21 +305,21 @@ describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cett
     assert.ok(raw.maxRssBytes > 0, `mémoire attendue positive, obtenue ${raw.maxRssBytes}`);
   });
 
-  test('remonte le code de sortie du script PHP mesuré, même après exit()', () => {
+  test('remonte le code de sortie du script PHP mesuré, même après exit()', async () => {
     const failing = path.join(ROOT, 'fixtures', 'measure-fail.php');
-    const { raw, exitCode } = runMeasured(failing);
+    const { raw, exitCode } = await runMeasured(failing);
     assert.strictEqual(exitCode, 3);
     assert.ok(raw.wallMs >= 0);
   });
 
-  test('le script mesuré reçoit ses propres arguments', () => {
+  test('le script mesuré reçoit ses propres arguments', async () => {
     // Même méthode que pour Python : stdout est hérité, le script écrit donc ce
     // qu'il observe dans un fichier dont le chemin lui est passé en argument.
     const echoScript = path.join(ROOT, 'fixtures', 'echo-argv.php');
     const echoOut = path.join(ROOT, 'fixtures', 'echo-argv-php.out.json');
     fs.writeFileSync(echoScript, '<?php file_put_contents($argv[1], json_encode($argv));\n');
     try {
-      const { exitCode } = runMeasured(echoScript, { args: [echoOut, 'b'] });
+      const { exitCode } = await runMeasured(echoScript, { args: [echoOut, 'b'] });
       assert.strictEqual(exitCode, 0);
       const seen = JSON.parse(fs.readFileSync(echoOut, 'utf8'));
       assert.deepStrictEqual(seen, [echoScript, echoOut, 'b']);
@@ -329,14 +329,14 @@ describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cett
     }
   });
 
-  test('une sonde dont le chemin contient des espaces est bien préchargée', () => {
+  test('une sonde dont le chemin contient des espaces est bien préchargée', async () => {
     // La valeur de `-d auto_prepend_file=…` n'est pas guillemetée : ce test
     // vérifie qu'un répertoire d'installation avec espaces ne la casse pas.
     const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'plugin-eco php '));
     try {
       const probe = path.join(dir, 'probe.php');
       fs.copyFileSync(path.join(ROOT, 'out', 'probe.php'), probe);
-      const { raw, exitCode } = runMeasured(BENCH_PHP, { probePath: probe });
+      const { raw, exitCode } = await runMeasured(BENCH_PHP, { probePath: probe });
       assert.strictEqual(exitCode, 0);
       assert.ok(raw.cpuUserUs > 0);
     } finally {
@@ -344,22 +344,22 @@ describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cett
     }
   });
 
-  test('un script PHP introuvable ne produit aucune mesure', () => {
+  test('un script PHP introuvable ne produit aucune mesure', async () => {
     // Contrairement à Node et Python, `php` s'arrête avant d'exécuter le
     // fichier préchargé quand le script n'existe pas : pas de sonde, pas de JSON.
-    assert.throws(
+    await assert.rejects(
       () => runMeasured(path.join(ROOT, 'fixtures', 'inexistant.php')),
       /aucune mesure/
     );
   });
 
-  test('une fonction d\'arrêt du script est comptée dans la mesure', () => {
+  test('une fonction d\'arrêt du script est comptée dans la mesure', async () => {
     // La sonde s'enregistre depuis une fonction d'arrêt pour passer en dernier.
     const slowScript = path.join(ROOT, 'fixtures', 'shutdown-slow.php');
     fs.writeFileSync(slowScript,
       '<?php register_shutdown_function(function () { usleep(300000); });\n');
     try {
-      const { raw, exitCode } = runMeasured(slowScript);
+      const { raw, exitCode } = await runMeasured(slowScript);
       assert.strictEqual(exitCode, 0);
       assert.ok(raw.wallMs >= 250, `la durée de la fonction d'arrêt doit compter, obtenu ${raw.wallMs} ms`);
     } finally {
@@ -367,21 +367,21 @@ describe('runMeasured : PHP', { skip: !phpAvailable && 'php introuvable sur cett
     }
   });
 
-  test('--php permet de viser un exécutable précis', () => {
-    const { exitCode } = runMeasured(BENCH_PHP, { phpInterpreter: PHP });
+  test('--php permet de viser un exécutable précis', async () => {
+    const { exitCode } = await runMeasured(BENCH_PHP, { phpInterpreter: PHP });
     assert.strictEqual(exitCode, 0);
   });
 
-  test('runs > 1 fonctionne aussi sur PHP', () => {
-    const { exitCode, samples } = runMeasured(BENCH_PHP, { runs: 2 });
+  test('runs > 1 fonctionne aussi sur PHP', async () => {
+    const { exitCode, samples } = await runMeasured(BENCH_PHP, { runs: 2 });
     assert.strictEqual(exitCode, 0);
     assert.strictEqual(samples.length, 2);
   });
 });
 
 describe('runMeasured : PHP absent', () => {
-  test('un interpréteur PHP introuvable lève une erreur exploitable', () => {
-    assert.throws(
+  test('un interpréteur PHP introuvable lève une erreur exploitable', async () => {
+    await assert.rejects(
       () => runMeasured(BENCH_PHP, { phpInterpreter: 'plugin-eco-interprete-inexistant' }),
       /introuvable/
     );
@@ -389,19 +389,19 @@ describe('runMeasured : PHP absent', () => {
 });
 
 describe('Java : fonctions pures', () => {
-  test('languageFor reconnaît .jar et .java', () => {
+  test('languageFor reconnaît .jar et .java', async () => {
     assert.strictEqual(languageFor('app.jar'), 'java');
     assert.strictEqual(languageFor('Main.java'), 'java');
     assert.strictEqual(languageFor('APP.JAR'), 'java');
   });
 
-  test('fromJavaProbe convertit les compteurs de la sonde', () => {
+  test('fromJavaProbe convertit les compteurs de la sonde', async () => {
     const raw = fromJavaProbe({ cpuTotalNs: 2_500_000, allocatedBytes: 10, peakHeapBytes: 4096 }, 120);
     assert.deepStrictEqual(raw, { cpuUserUs: 2500, cpuSystemUs: 0, wallMs: 120, maxRssBytes: 4096 });
   });
 
-  test('une sonde Java absente est signalée clairement, sans lancer de JVM', () => {
-    assert.throws(
+  test('une sonde Java absente est signalée clairement, sans lancer de JVM', async () => {
+    await assert.rejects(
       () => runMeasured(BENCH_JAVA, { probePath: path.join(ROOT, 'fixtures', 'inexistant.jar') }),
       /sonde Java absente/
     );
@@ -409,21 +409,21 @@ describe('Java : fonctions pures', () => {
 });
 
 describe('runMeasured : Java', { skip: !javaAvailable && 'JDK ou out/probe.jar absent' }, () => {
-  test('mesure un .java mono-fichier qui se termine de lui-même', () => {
-    const { raw, exitCode } = runMeasured(BENCH_JAVA);
+  test('mesure un .java mono-fichier qui se termine de lui-même', async () => {
+    const { raw, exitCode } = await runMeasured(BENCH_JAVA);
     assert.strictEqual(exitCode, 0);
     assert.ok(raw.cpuUserUs > 0, 'du temps CPU doit avoir été consommé');
     assert.ok(raw.wallMs > 0, 'un temps mur positif est attendu');
     assert.ok(raw.maxRssBytes > 0, `pic de tas attendu positif, obtenu ${raw.maxRssBytes}`);
   });
 
-  test('remonte le code de sortie du programme Java, même après System.exit()', () => {
-    const { raw, exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'MeasureFail.java'));
+  test('remonte le code de sortie du programme Java, même après System.exit()', async () => {
+    const { raw, exitCode } = await runMeasured(path.join(ROOT, 'fixtures', 'MeasureFail.java'));
     assert.strictEqual(exitCode, 3);
     assert.ok(raw.wallMs >= 0);
   });
 
-  test('mesure un .jar exécutable et lui transmet ses arguments', () => {
+  test('mesure un .jar exécutable et lui transmet ses arguments', async () => {
     const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'plugin-eco-jar-'));
     try {
       const src = path.join(dir, 'Echo.java');
@@ -439,7 +439,7 @@ describe('runMeasured : Java', { skip: !javaAvailable && 'JDK ou out/probe.jar a
       const jar = path.join(dir, 'echo.jar');
       assert.strictEqual(spawnSync('jar', ['cfm', jar, manifest, '-C', classes, 'Echo.class']).status, 0);
 
-      const { exitCode, raw } = runMeasured(jar, { args: [out, 'b'] });
+      const { exitCode, raw } = await runMeasured(jar, { args: [out, 'b'] });
       assert.strictEqual(exitCode, 0);
       assert.ok(raw.maxRssBytes > 0);
       assert.strictEqual(fs.readFileSync(out, 'utf8'), `${out},b`);
@@ -448,16 +448,98 @@ describe('runMeasured : Java', { skip: !javaAvailable && 'JDK ou out/probe.jar a
     }
   });
 
-  test('runs > 1 fonctionne aussi sur Java', () => {
-    const { exitCode, samples } = runMeasured(BENCH_JAVA, { runs: 2 });
+  test('runs > 1 fonctionne aussi sur Java', async () => {
+    const { exitCode, samples } = await runMeasured(BENCH_JAVA, { runs: 2 });
     assert.strictEqual(exitCode, 0);
     assert.strictEqual(samples.length, 2);
   });
 
-  test('un fichier .java introuvable produit quand même une mesure et un code d\'échec', () => {
+  test('un fichier .java introuvable produit quand même une mesure et un code d\'échec', async () => {
     // L'agent s'installe avant que le lanceur tente de lire le source : comme
     // Node et Python, et à l'inverse de PHP.
-    const { exitCode } = runMeasured(path.join(ROOT, 'fixtures', 'Inexistant.java'));
+    const { exitCode } = await runMeasured(path.join(ROOT, 'fixtures', 'Inexistant.java'));
     assert.notStrictEqual(exitCode, 0);
+  });
+});
+
+// --- Lancement depuis l'extension VSCode -------------------------------------
+
+describe('Node depuis l\'hôte d\'extension VSCode (Electron)', () => {
+  const electron = { execPath: 'C:/VSCode/Code.exe', electron: '43.0.0' };
+
+  test('lance le Node embarqué de VSCode, avec repli sur node du PATH', () => {
+    const launch = commandFor(BENCH, { runtime: electron });
+    assert.strictEqual(launch.command, electron.execPath);
+    assert.deepStrictEqual(launch.env, { ELECTRON_RUN_AS_NODE: '1' });
+    assert.strictEqual(launch.fallback.command, 'node');
+    assert.deepStrictEqual(launch.fallback.args, launch.args);
+    assert.strictEqual(launch.fallback.env, undefined);
+  });
+
+  test('hors Electron (CLI), ni variable ajoutée ni repli', () => {
+    const launch = commandFor(BENCH, { runtime: { execPath: process.execPath } });
+    assert.strictEqual(launch.command, process.execPath);
+    assert.strictEqual(launch.env, undefined);
+    assert.strictEqual(launch.fallback, undefined);
+  });
+
+  test('si le Node de VSCode ne démarre pas, la mesure passe par node du PATH', async () => {
+    const { exitCode, raw } = await runMeasured(BENCH, {
+      runtime: { execPath: 'plugin-eco-executable-inexistant', electron: '43.0.0' },
+    });
+    assert.strictEqual(exitCode, 0);
+    assert.ok(raw.cpuUserUs > 0);
+  });
+});
+
+describe('runMeasured : options de l\'extension', () => {
+  const tmpScript = (name, code) => {
+    const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'plugin-eco-ext-'));
+    const file = path.join(dir, name);
+    fs.writeFileSync(file, code);
+    return { dir, file };
+  };
+
+  test('onOutput reçoit stdout et stderr du script au lieu de les hériter', async () => {
+    const { dir, file } = tmpScript('bavard.js', 'console.log("sur stdout"); console.error("sur stderr");');
+    try {
+      let seen = '';
+      const { exitCode } = await runMeasured(file, { onOutput: chunk => { seen += chunk; } });
+      assert.strictEqual(exitCode, 0);
+      assert.match(seen, /sur stdout/);
+      assert.match(seen, /sur stderr/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('cwd fixe le répertoire de travail du script', async () => {
+    const { dir, file } = tmpScript('cwd.js',
+      'require("fs").writeFileSync("cwd.txt", process.cwd());');
+    try {
+      await runMeasured(file, { cwd: dir });
+      assert.strictEqual(fs.realpathSync(fs.readFileSync(path.join(dir, 'cwd.txt'), 'utf8')), fs.realpathSync(dir));
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('annuler tue le script et rejette, sans attendre sa fin', async () => {
+    const { dir, file } = tmpScript('long.js', 'setTimeout(() => {}, 30000);');
+    try {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 300);
+      const t0 = Date.now();
+      await assert.rejects(runMeasured(file, { signal: controller.signal }), /annulée/);
+      assert.ok(Date.now() - t0 < 10000, 'le script aurait dû être tué');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('un signal déjà annulé ne lance rien', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    await assert.rejects(runMeasured(BENCH, { signal: controller.signal }), /annulée/);
   });
 });

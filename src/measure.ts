@@ -23,7 +23,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn } from 'child_process';
 
 /** Ce que la sonde a mesuré, brut, sans conversion. */
 export interface RawMeasurement {
@@ -71,6 +71,28 @@ export interface MeasureOptions {
   phpInterpreter?: string;
   /** Exécutable Java à lancer pour un `.jar` ou un `.java` ; défaut : `defaultJavaInterpreter()`. */
   javaInterpreter?: string;
+  /** Répertoire de travail du programme mesuré ; défaut : celui du processus courant. */
+  cwd?: string;
+  /**
+   * Reçoit la sortie (stdout et stderr) du programme mesuré. Absent : elle est
+   * héritée telle quelle (`inherit`), comme dans le CLI. Présent : elle est
+   * capturée et transmise ici — l'extension VSCode n'a pas de terminal à hériter.
+   */
+  onOutput?: (chunk: string) => void;
+  /** Interrompt la mesure : le processus en cours est tué, `runMeasured` rejette. */
+  signal?: AbortSignal;
+  /**
+   * Runtime qui exécute un script Node ; défaut : celui du processus courant.
+   * Exposé pour les tests, qui simulent l'hôte d'extension VSCode (Electron).
+   */
+  runtime?: NodeRuntime;
+}
+
+/** Ce qui décide comment lancer Node : l'exécutable courant, et s'il est Electron. */
+export interface NodeRuntime {
+  execPath: string;
+  /** Version d'Electron si le processus courant en est un (hôte d'extension VSCode). */
+  electron?: string;
 }
 
 /**
@@ -96,20 +118,24 @@ export interface MeasureResult {
 /**
  * Exécute `script` sous la sonde, une ou plusieurs fois, et retourne sa mesure.
  *
- * stdout/stderr du programme mesuré sont hérités (`inherit`) : l'utilisateur
- * le voit tourner normalement, aucune sortie de mesure ne s'y mélange.
+ * Asynchrone : appelée depuis l'extension VSCode, une exécution synchrone
+ * gèlerait l'hôte d'extension — et toutes les extensions avec lui — le temps
+ * que le script tourne. Le CLI l'attend simplement.
+ *
+ * Sans `onOutput`, stdout/stderr du programme mesuré sont hérités (`inherit`) :
+ * l'utilisateur le voit tourner normalement, aucune sortie de mesure ne s'y mélange.
  *
  * Avec `runs > 1`, les exécutions s'arrêtent à la première qui échoue : un
  * script en erreur n'a pas de consommation représentative à moyenner, et son
  * code de sortie doit remonter tel quel.
  */
-export function runMeasured(script: string, opts: MeasureOptions = {}): MeasureResult {
+export async function runMeasured(script: string, opts: MeasureOptions = {}): Promise<MeasureResult> {
   const runs = opts.runs ?? 1;
   const samples: RawMeasurement[] = [];
   let exitCode: number | null = null;
 
   for (let i = 0; i < runs; i++) {
-    const once = runOnce(script, opts);
+    const once = await runOnce(script, opts);
     samples.push(once.raw);
     exitCode = once.exitCode;
     if (exitCode !== 0) break;
@@ -144,8 +170,18 @@ export function medianMeasurement(samples: RawMeasurement[]): RawMeasurement {
   };
 }
 
+/** Une façon de lancer le programme mesuré. */
+export interface Launch {
+  command: string;
+  args: string[];
+  /** Variables d'environnement ajoutées à celles du processus courant. */
+  env?: Record<string, string>;
+  /** Lancement de repli si celui-ci ne démarre pas du tout. */
+  fallback?: Launch;
+}
+
 /** Sonde et commande à lancer pour mesurer `script`, selon son langage détecté. */
-function commandFor(script: string, opts: MeasureOptions): { command: string; args: string[] } {
+export function commandFor(script: string, opts: MeasureOptions = {}): Launch {
   const lang = languageFor(script);
   const scriptArgs = opts.args ?? [];
 
@@ -178,10 +214,62 @@ function commandFor(script: string, opts: MeasureOptions): { command: string; ar
   }
 
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');
-  return { command: process.execPath, args: ['--require', probePath, script, ...scriptArgs] };
+  const args = ['--require', probePath, script, ...scriptArgs];
+  const runtime = opts.runtime ?? { execPath: process.execPath, electron: process.versions.electron };
+
+  // Dans l'hôte d'extension VSCode, `execPath` est l'exécutable de VSCode : sans
+  // ELECTRON_RUN_AS_NODE, il ouvrirait une fenêtre au lieu d'exécuter le script.
+  // Avec, c'est le Node embarqué de VSCode ; s'il ne démarre pas, `node` du PATH.
+  if (runtime.electron) {
+    return {
+      command: runtime.execPath, args, env: { ELECTRON_RUN_AS_NODE: '1' },
+      fallback: { command: 'node', args },
+    };
+  }
+  return { command: runtime.execPath, args };
 }
 
-function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; exitCode: number | null } {
+interface SpawnOutcome {
+  status: number | null;
+  signal: NodeJS.Signals | null;
+  /** Le processus n'a pas pu être lancé (exécutable introuvable…). */
+  startError?: Error;
+  wallMs: number;
+}
+
+/** Lance un processus et attend sa fin, sans jamais rejeter. */
+function spawnMeasured(launch: Launch, outPath: string, opts: MeasureOptions): Promise<SpawnOutcome> {
+  return new Promise(resolve => {
+    const startedAt = performance.now();
+    const child = spawn(launch.command, launch.args, {
+      cwd: opts.cwd,
+      env: { ...process.env, ...launch.env, PLUGIN_ECO_PROBE_OUT: outPath },
+      stdio: opts.onOutput ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+      signal: opts.signal,
+    });
+    if (opts.onOutput) {
+      child.stdout?.setEncoding('utf8').on('data', opts.onOutput);
+      child.stderr?.setEncoding('utf8').on('data', opts.onOutput);
+    }
+
+    let settled = false;
+    const done = (outcome: Omit<SpawnOutcome, 'wallMs'>) => {
+      if (settled) return;
+      settled = true;
+      resolve({ ...outcome, wallMs: performance.now() - startedAt });
+    };
+    // Sans pid, le processus n'a jamais démarré : 'close' n'est pas garanti.
+    // Avec (annulation), on attend 'close' pour que la sortie soit complète.
+    child.on('error', err => {
+      if (child.pid === undefined) done({ status: null, signal: null, startError: err });
+    });
+    child.on('close', (status, signal) => done({ status, signal }));
+  });
+}
+
+async function runOnce(script: string, opts: MeasureOptions): Promise<{ raw: RawMeasurement; exitCode: number | null }> {
+  if (opts.signal?.aborted) throw new Error('mesure annulée.');
+
   // Répertoire privé (0700, nom aléatoire) plutôt qu'un fichier au nom
   // prévisible dans le tmpdir partagé : sur une machine multi-utilisateurs,
   // personne ne peut y déposer d'avance un lien symbolique que la sonde
@@ -189,12 +277,20 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
   const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-eco-'));
   const outPath = path.join(outDir, 'probe.json');
 
-  const { command, args } = commandFor(script, opts);
-  const startedAt = performance.now();
-  const result = spawnSync(command, args, {
-    stdio: 'inherit', env: { ...process.env, PLUGIN_ECO_PROBE_OUT: outPath },
-  });
-  const wallMs = performance.now() - startedAt;
+  let launch: Launch;
+  try {
+    launch = commandFor(script, opts);
+  } catch (err) {
+    fs.rmSync(outDir, { recursive: true, force: true });
+    throw err;
+  }
+  let result = await spawnMeasured(launch, outPath, opts);
+  if (result.startError && launch.fallback) {
+    launch = launch.fallback;
+    result = await spawnMeasured(launch, outPath, opts);
+  }
+  const { command } = launch;
+  const { wallMs } = result;
 
   let raw: RawMeasurement | null = null;
   try {
@@ -208,10 +304,12 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
     fs.rmSync(outDir, { recursive: true, force: true });
   }
 
+  if (opts.signal?.aborted) throw new Error('mesure annulée.');
+
   if (!raw) {
-    if (result.error) {
+    if (result.startError) {
       // Cas typique : interpréteur absent du PATH (ex. `python3` sous Windows).
-      throw new Error(`interpréteur « ${command} » introuvable : ${result.error.message}`);
+      throw new Error(`interpréteur « ${command} » introuvable : ${result.startError.message}`);
     }
     const hint = languageFor(script) === 'java' ? ' Une JVM 21 ou plus est requise par la sonde.' : '';
     throw new Error(
