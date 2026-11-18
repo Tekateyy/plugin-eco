@@ -6,6 +6,8 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+## [0.5.0] — 2026-11-17
+
 ### Ajouté
 - Analyse statique du PHP (`.php`) : boucle imbriquée et requête SQL sans
   `LIMIT`, chaînes interpolées, heredoc et nowdoc compris.
