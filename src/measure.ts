@@ -12,12 +12,12 @@
  * `PYTHONPATH` dédié, pour ne rien avoir à fusionner avec celui de
  * l'utilisateur ni masquer le sien s'il en a un. PHP charge `probe.php` via
  * `php -d auto_prepend_file=…`, exécuté avant le script dans le même processus.
- * Dans les trois cas, la sonde écrit `RawMeasurement` en JSON dans un fichier temporaire à la sortie du
- * processus ; ce module le lit et le convertit en Wh/CO₂ via des coefficients
- * standards, explicitement affichés en résultat.
- *
- * Écrit pour se transposer à Java (-javaagent ou JFR) sans changer cette
- * frontière.
+ * Java charge `probe.jar` via `java -javaagent:…` (`-jar` pour un `.jar`, lancement
+ * direct du source pour un `.java`).
+ * Dans tous les cas, la sonde écrit sa mesure en JSON dans un fichier temporaire à la
+ * sortie du processus ; ce module le lit et le convertit en Wh/CO₂ via des
+ * coefficients standards, explicitement affichés en résultat. Seule la sonde Java
+ * écrit un autre format (`JavaProbeOutput`), normalisé ici en `RawMeasurement`.
  */
 
 import * as fs from 'fs';
@@ -33,19 +33,25 @@ export interface RawMeasurement {
   maxRssBytes: number | null;
 }
 
-export type Language = 'node' | 'python' | 'php';
+export type Language = 'node' | 'python' | 'php' | 'java';
 
-/** Langage déduit de l'extension ; tout ce qui n'est ni `.py` ni `.php` est traité comme Node. */
+/** Langage déduit de l'extension ; tout ce qui n'est ni `.py`, `.php`, `.jar` ni `.java` est traité comme Node. */
 export function languageFor(script: string): Language {
   const ext = path.extname(script).toLowerCase();
   if (ext === '.py') return 'python';
   if (ext === '.php') return 'php';
+  if (ext === '.jar' || ext === '.java') return 'java';
   return 'node';
 }
 
 /** `php` partout : l'exécutable porte ce nom sous Windows comme ailleurs. */
 export function defaultPhpInterpreter(): string {
   return 'php';
+}
+
+/** `java` partout, résolu par le PATH. */
+export function defaultJavaInterpreter(): string {
+  return 'java';
 }
 
 /** `python` sous Windows (où `python3` n'existe généralement pas), `python3` ailleurs. */
@@ -63,6 +69,19 @@ export interface MeasureOptions {
   pythonInterpreter?: string;
   /** Exécutable PHP à lancer pour un script `.php` ; défaut : `defaultPhpInterpreter()`. */
   phpInterpreter?: string;
+  /** Exécutable Java à lancer pour un `.jar` ou un `.java` ; défaut : `defaultJavaInterpreter()`. */
+  javaInterpreter?: string;
+}
+
+/**
+ * Ce qu'écrit la sonde Java : des compteurs de JVM, pas ceux des autres sondes.
+ * `allocatedBytes` n'entre pas dans l'estimation (le modèle ne le pondère pas) ;
+ * il est lu pour rester fidèle au format mais n'est pas conservé.
+ */
+interface JavaProbeOutput {
+  cpuTotalNs: number;
+  allocatedBytes: number;
+  peakHeapBytes: number;
 }
 
 export interface MeasureResult {
@@ -142,6 +161,22 @@ function commandFor(script: string, opts: MeasureOptions): { command: string; ar
     return { command: php, args: ['-d', `auto_prepend_file=${probePath}`, script, ...scriptArgs] };
   }
 
+  if (lang === 'java') {
+    const probePath = opts.probePath ?? path.join(__dirname, 'probe.jar');
+    if (!fs.existsSync(probePath)) {
+      throw new Error(
+        `sonde Java absente (${probePath}) : elle est produite au build, qui exige un JDK 21+ ` +
+        `(javac et jar sur le PATH).`
+      );
+    }
+    const java = opts.javaInterpreter ?? defaultJavaInterpreter();
+    const jar = path.extname(script).toLowerCase() === '.jar';
+    return {
+      command: java,
+      args: [`-javaagent:${probePath}`, ...(jar ? ['-jar'] : []), script, ...scriptArgs],
+    };
+  }
+
   const probePath = opts.probePath ?? path.join(__dirname, 'probe.js');
   return { command: process.execPath, args: ['--require', probePath, script, ...scriptArgs] };
 }
@@ -155,13 +190,18 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
   const outPath = path.join(outDir, 'probe.json');
 
   const { command, args } = commandFor(script, opts);
+  const startedAt = performance.now();
   const result = spawnSync(command, args, {
     stdio: 'inherit', env: { ...process.env, PLUGIN_ECO_PROBE_OUT: outPath },
   });
+  const wallMs = performance.now() - startedAt;
 
   let raw: RawMeasurement | null = null;
   try {
-    raw = JSON.parse(fs.readFileSync(outPath, 'utf8')) as RawMeasurement;
+    const parsed = JSON.parse(fs.readFileSync(outPath, 'utf8'));
+    raw = languageFor(script) === 'java'
+      ? fromJavaProbe(parsed as JavaProbeOutput, wallMs)
+      : parsed as RawMeasurement;
   } catch {
     raw = null;
   } finally {
@@ -173,12 +213,29 @@ function runOnce(script: string, opts: MeasureOptions): { raw: RawMeasurement; e
       // Cas typique : interpréteur absent du PATH (ex. `python3` sous Windows).
       throw new Error(`interpréteur « ${command} » introuvable : ${result.error.message}`);
     }
+    const hint = languageFor(script) === 'java' ? ' Une JVM 21 ou plus est requise par la sonde.' : '';
     throw new Error(
-      `le programme n'a produit aucune mesure (code de sortie ${result.status ?? result.signal ?? '?'}).`
+      `le programme n'a produit aucune mesure (code de sortie ${result.status ?? result.signal ?? '?'}).${hint}`
     );
   }
 
   return { raw, exitCode: result.status };
+}
+
+/**
+ * Java : le temps CPU est celui du processus entier, démarrage de la JVM compris,
+ * sans distinction utilisateur/système (donc tout en « utilisateur »). La RAM est le
+ * pic de tas, et non un RSS de pointe — aucune lecture portable via les MXBeans.
+ * La durée est prise par le parent, la sonde ne la mesure pas : elle englobe donc
+ * aussi le lancement de la JVM.
+ */
+export function fromJavaProbe(out: JavaProbeOutput, wallMs: number): RawMeasurement {
+  return {
+    cpuUserUs: out.cpuTotalNs / 1000,
+    cpuSystemUs: 0,
+    wallMs,
+    maxRssBytes: out.peakHeapBytes,
+  };
 }
 
 // ---------------------------------------------------------------------------

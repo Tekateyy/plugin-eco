@@ -4,7 +4,7 @@ import { collectFindings, filterDisabled } from './rules';
 import { computeScore, scoreSummary } from './scoring';
 import { buildWebviewHtml, buildWorkspaceHtml } from './webview';
 import { analyzeWorkspace } from './workspace';
-import { isSupported, specFor } from './languages';
+import { MAX_EDITOR_FILE_BYTES, isSupported, specFor } from './languages';
 import { inferContext } from './context';
 import { ExecutionContext, Finding, RuleId, Score } from './types';
 
@@ -137,6 +137,19 @@ function scheduleAnalysis(document: vscode.TextDocument): void {
 function analyzeDocument(document: vscode.TextDocument): void {
   const spec = specFor(document.languageId);
   if (!spec) return;
+
+  // Fichier généré ou bundlé : l'analyser gèlerait l'éditeur (voir MAX_EDITOR_FILE_BYTES).
+  if (document.getText().length > MAX_EDITOR_FILE_BYTES) {
+    diagnosticCollection.delete(document.uri);
+    statusBarItem.text = '⚡ Éco: fichier trop volumineux';
+    statusBarItem.tooltip = [
+      `Ce fichier dépasse ${MAX_EDITOR_FILE_BYTES / 1e6} Mo : il n'est pas analysé dans l'éditeur.`,
+      'En ligne de commande : plugin-eco <fichier> (peut prendre plusieurs secondes).',
+    ].join('\n');
+    statusBarItem.backgroundColor = undefined;
+    statusBarItem.show();
+    return;
+  }
 
   try {
     const tree = parse(document.getText(), document.languageId);

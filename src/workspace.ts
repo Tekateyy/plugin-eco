@@ -3,7 +3,7 @@ import * as path from 'path';
 import { parseWith } from './parser';
 import { collectFindings, filterDisabled } from './rules';
 import { computeScore, aggregateScore } from './scoring';
-import { LANGUAGES, LanguageSpec, globFor, excludeGlob } from './languages';
+import { LANGUAGES, LanguageSpec, MAX_EDITOR_FILE_BYTES, globFor, excludeGlob } from './languages';
 import { inferContext } from './context';
 import { FileResult, WorkspaceReport, RuleId } from './types';
 
@@ -38,6 +38,7 @@ export async function analyzeWorkspace(
   }
 
   const results: FileResult[] = [];
+  const tooLarge: string[] = [];
 
   await vscode.window.withProgress({
     location: vscode.ProgressLocation.Notification,
@@ -60,6 +61,11 @@ export async function analyzeWorkspace(
 
       try {
         const bytes = await vscode.workspace.fs.readFile(uri);
+        if (bytes.length > MAX_EDITOR_FILE_BYTES) {
+          diagnosticCollection.delete(uri);
+          tooLarge.push(baseName);
+          continue;
+        }
         const code = Buffer.from(bytes).toString('utf-8');
         const tree = parseWith(code, spec);
         const { context } = inferContext(tree.rootNode, spec);
@@ -91,6 +97,14 @@ export async function analyzeWorkspace(
       }
     }
   });
+
+  if (tooLarge.length > 0) {
+    vscode.window.showInformationMessage(
+      `Plugin Eco : ${tooLarge.length} fichier(s) trop volumineux ignoré(s) (${tooLarge.slice(0, 3).join(', ')}` +
+      `${tooLarge.length > 3 ? '…' : ''}). Analyse possible en ligne de commande : plugin-eco <fichier> ` +
+      `(peut prendre plusieurs secondes).`
+    );
+  }
 
   if (results.length === 0) return null;
 

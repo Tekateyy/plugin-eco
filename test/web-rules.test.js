@@ -324,6 +324,28 @@ describe('la règle SQL ne se déclenche que sur de vraies requêtes', () => {
     assert.strictEqual(f.length, 1);
   });
 
+  test('une phrase qui commence par Select et contient from ne compte pas', () => {
+    // Faux positif connu : « Select a file from the list » était prise pour une requête.
+    const f = analyze(
+      `export const msg = "Select a file from the list";`, 'server');
+    assert.deepStrictEqual(messages(f), []);
+  });
+
+  test('les formes courantes de liste de colonnes restent détectées', () => {
+    for (const q of [
+      'SELECT * FROM t',
+      'SELECT id FROM t',
+      'SELECT DISTINCT id FROM t',
+      'SELECT id, name FROM t',
+      'SELECT COUNT(*) FROM t',
+      'SELECT u.id FROM users u',
+      'WITH a AS (SELECT 1) SELECT x FROM a',
+    ]) {
+      const f = matching(analyze(`export const q = "${q}";`, 'server'), 'LIMIT');
+      assert.strictEqual(f.length, 1, q);
+    }
+  });
+
   test('un SELECT au milieu d\'une phrase ne compte pas', () => {
     const f = analyze(
       `export const msg = "Veuillez SELECT une option FROM la liste";`, 'server');

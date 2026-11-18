@@ -581,3 +581,25 @@ describe(
     });
   }
 );
+
+describe('fichier volumineux', () => {
+  test('le CLI analyse quand même un fichier de plus de 1 Mo et prévient sur stderr', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'plugin-eco-big-'));
+    try {
+      const big = path.join(dir, 'big.js');
+      fs.writeFileSync(big, 'const x = 1;\n'.repeat(90000)); // ~1,2 Mo
+      const r = run([big]);
+      assert.strictEqual(r.code, 0, r.stderr);
+      assert.match(r.stderr, /Fichier volumineux \(1\.\d Mo\)/);
+      assert.match(r.stderr, /plusieurs secondes/);
+      assert.match(r.stdout, /1 analysé/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('un fichier ordinaire ne déclenche aucun avertissement', () => {
+    const r = run(['samples/Example.java']);
+    assert.doesNotMatch(r.stderr, /volumineux/);
+  });
+});

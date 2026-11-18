@@ -2,9 +2,13 @@
 //
 // Un JDK n'est pas requis pour construire le plugin : sans `javac` ou `jar` sur
 // le PATH, le script avertit sur stderr et sort en 0 — le jar est alors absent.
-// Rien ne le consomme encore (`measure` ne mesure pas Java), donc rien ne casse ;
-// quand `measure` l'utilisera, il devra signaler l'absence du jar. Une erreur de
-// compilation, elle, est une vraie erreur : le script sort en 1.
+// `measure` signale alors lui-même l'absence du jar quand on lui donne un `.jar`
+// ou un `.java`. Une erreur de compilation, elle, est une vraie erreur : le
+// script sort en 1.
+//
+// Le jar embarque toutes les classes compilées (`-C classes .`), pas seulement
+// `Probe.class` : la classe anonyme `Probe$1` (le Runnable du shutdown hook) en
+// fait partie, et son absence faisait échouer le chargement de l'agent.
 
 const fs = require('fs');
 const os = require('os');
@@ -48,7 +52,7 @@ function main() {
     fs.writeFileSync(manifest, 'Premain-Class: Probe\n');
 
     fs.mkdirSync(path.dirname(outJar), { recursive: true });
-    const pack = run('jar', ['cfm', outJar, manifest, '-C', classes, 'Probe.class']);
+    const pack = run('jar', ['cfm', outJar, manifest, '-C', classes, '.']);
     if (pack === 'absent') {
       console.warn('jar introuvable : out/probe.jar non produit (mesure Java indisponible).');
       return 0;

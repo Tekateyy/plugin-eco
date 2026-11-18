@@ -68,11 +68,34 @@ const THROTTLE_PATTERN = /debounce|throttle|raf|requestAnimationFrame/i;
  * code d'une contribution extérieure. Chacun de ces trois motifs est linéaire.
  */
 const SQL_STARTS = /^\s*(SELECT|WITH)\b/;
-const HAS_SELECT = /\bSELECT\b/;
+const SELECT_WORD = /\bSELECT\b/g;
 const HAS_FROM = /\bFROM\b/;
 
+/**
+ * Une liste de colonnes plausible : `*`, plusieurs colonnes, un appel ou une
+ * colonne qualifiée — ou un seul mot (`SELECT id FROM`), éventuellement après
+ * `DISTINCT`/`ALL`. Deux mots nus à la suite sans virgule, comme dans
+ * « Select a file from the list », sont de la prose. Limite assumée : une phrase
+ * à un seul mot entre les deux (« Select one from the list ») passe encore.
+ */
+const COLUMN_LIST = /[*,(.]|^\s*(?:(?:DISTINCT|ALL)\s+)?\S+\s*$/;
+
 function looksLikeQuery(upper: string): boolean {
-  return SQL_STARTS.test(upper) && HAS_SELECT.test(upper) && HAS_FROM.test(upper);
+  if (!SQL_STARTS.test(upper)) return false;
+  const from = HAS_FROM.exec(upper);
+  if (!from) return false;
+
+  // Dernier SELECT avant le premier FROM : le cas `WITH x AS (SELECT …) SELECT … FROM`
+  // met un SELECT de sous-requête avant celui qui porte le FROM.
+  const head = upper.slice(0, from.index);
+  let lastSelectEnd = -1;
+  SELECT_WORD.lastIndex = 0;
+  for (let m = SELECT_WORD.exec(head); m; m = SELECT_WORD.exec(head)) {
+    lastSelectEnd = m.index + m[0].length;
+  }
+  if (lastSelectEnd < 0) return false;
+
+  return COLUMN_LIST.test(head.slice(lastSelectEnd));
 }
 
 /**
