@@ -320,8 +320,8 @@ installée n'a pas les `node_modules` de développement sous la main.
 
 Analyse statique de Java, JavaScript, TypeScript, Python et PHP, avec un jeu de
 règles web qui distingue le code serveur du code navigateur. Mesure à
-l'exécution (Wh et CO₂) en prototype, pour Node, Python et PHP. Java et le portage
-IntelliJ sont les étapes suivantes.
+l'exécution (Wh et CO₂) en prototype, pour Node, Python et PHP. Java est l'étape
+suivante.
 
 Le détail des changements par version est dans [CHANGELOG.md](CHANGELOG.md).
 
