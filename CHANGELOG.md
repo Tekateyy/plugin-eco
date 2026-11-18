@@ -7,6 +7,9 @@ celle du champ `version` de `package.json`.
 ## [Non publié]
 
 ### Ajouté
+- Mesure à l'exécution dans VSCode : commande « Greencoding: Mesurer le fichier
+  actif » et bouton « Mesurer » du rapport. Résultat dans un panneau à part,
+  sortie du script dans l'onglet Sortie, mesure annulable.
 - `plugin-eco measure` mesure aussi un `.jar` exécutable ou un fichier `.java`,
   avec `--java <exécutable>` pour choisir la JVM (21 ou plus).
 - Un fichier de plus de 1 Mo n'est plus analysé dans l'éditeur : la barre d'état

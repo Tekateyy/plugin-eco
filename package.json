@@ -46,6 +46,10 @@
       {
         "command": "greencoding.analyzeWorkspace",
         "title": "Greencoding: Analyser tout le workspace"
+      },
+      {
+        "command": "greencoding.measure",
+        "title": "Greencoding: Mesurer le fichier actif (exécute le code)"
       }
     ],
     "configuration": {

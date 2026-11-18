@@ -1,5 +1,8 @@
 import { Finding, Score, WorkspaceReport } from './types';
 import { scoreSummary } from './scoring';
+// Import de types seulement, effacé à la compilation : ce module ne charge pas
+// `measure.js` (ni `child_process`) pour autant.
+import type { EnergyEstimate, MeasureResult } from './measure';
 
 const DPE_COLORS: Record<Score['letter'], { bg: string; fg: string }> = {
   A: { bg: '#00A550', fg: '#ffffff' },
@@ -90,14 +93,25 @@ function sharedStyles(): string {
     text-align: center; border-radius: 3px; font-weight: 700; font-size: 0.9em;
   }
   .clickable { cursor: pointer; }
-  .clickable:hover td { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.06)); }`;
+  .clickable:hover td { background: var(--vscode-list-hoverBackground, rgba(255,255,255,0.06)); }
+  button {
+    font-family: inherit; font-size: 0.9em; cursor: pointer;
+    padding: 4px 12px; margin-bottom: 20px; border: none; border-radius: 2px;
+    color: var(--vscode-button-foreground);
+    background: var(--vscode-button-background);
+  }
+  button:hover { background: var(--vscode-button-hoverBackground); }
+  .col-label { white-space: nowrap; opacity: 0.55; width: 1%; }`;
 }
 
 // ---------------------------------------------------------------------------
 // Rapport fichier unique
 // ---------------------------------------------------------------------------
 
-/** Génère le HTML du panneau mono-fichier (pas de scripts nécessaires). */
+/**
+ * Génère le HTML du panneau mono-fichier. Seul script : le bouton « Mesurer »,
+ * qui demande à l'extension de mesurer le fichier affiché — jamais lancé seul.
+ */
 export function buildWebviewHtml(
   findings: Finding[],
   score: Score,
@@ -120,6 +134,17 @@ export function buildWebviewHtml(
     const order = { high: 0, medium: 1, low: 2 };
     return order[a.severity] - order[b.severity];
   });
+
+  // Pas de bouton tant qu'aucun fichier n'a été analysé : rien à mesurer.
+  const measureButton = fileName
+    ? `<button id="measure" title="Exécute ce fichier et mesure sa consommation réelle">Mesurer</button>
+       <script nonce="${nonce}">
+         const vscode = acquireVsCodeApi();
+         document.getElementById('measure').addEventListener('click', () => {
+           vscode.postMessage({ command: 'measure' });
+         });
+       </script>`
+    : '';
 
   const rows = sorted.length === 0
     ? `<tr><td colspan="3" class="empty">Aucun pattern énergivore détecté 🎉</td></tr>`
@@ -144,11 +169,51 @@ export function buildWebviewHtml(
         : `${total} alerte${total > 1 ? 's' : ''} : ${high} haute${high > 1 ? 's' : ''}, ${medium} moyenne${medium > 1 ? 's' : ''}`
     }</div>
     ${partialBlock}
+    ${measureButton}
 
     <h2>Détail des alertes</h2>
     <table>
       <thead><tr><th>Ligne</th><th>Sévérité</th><th>Message</th></tr></thead>
       <tbody>${rows}</tbody>
+    </table>
+  `, nonce, fileName ? `script-src 'nonce-${nonce}';` : '');
+}
+
+// ---------------------------------------------------------------------------
+// Mesure à l'exécution
+// ---------------------------------------------------------------------------
+
+/**
+ * Génère le HTML du panneau de mesure : les mêmes grandeurs que
+ * `plugin-eco measure` en texte, sans script.
+ */
+export function buildMeasureHtml(
+  fileName: string,
+  result: MeasureResult,
+  est: EnergyEstimate,
+  nonce: string
+): string {
+  const { raw, exitCode } = result;
+  const cpuUserS = raw.cpuUserUs / 1e6;
+  const cpuSystemS = raw.cpuSystemUs / 1e6;
+  const maxRssMo = raw.maxRssBytes !== null ? (raw.maxRssBytes / 1024 ** 2).toFixed(0) : '?';
+
+  const rows: [string, string][] = [
+    ['Sortie', `code ${exitCode ?? '?'}`],
+    ['CPU', `${(cpuUserS + cpuSystemS).toFixed(2)} s (user ${cpuUserS.toFixed(2)} · system ${cpuSystemS.toFixed(2)})`],
+    ['Durée', `${(raw.wallMs / 1000).toFixed(2)} s`],
+    ['Mémoire', `max ${maxRssMo} Mo`],
+    ['Énergie', `≈ ${est.wh.toFixed(4)} Wh · ≈ ${(est.gCO2 * 1000).toFixed(2)} mg CO₂`],
+    ['Hypothèses', est.hypotheses],
+  ];
+
+  return html(`
+    <h1>⚡ Mesure à l'exécution</h1>
+    <div class="subtitle">${esc(fileName)}</div>
+
+    <table>
+      <tbody>${rows.map(([label, value]) =>
+        `<tr><td class="col-label">${label}</td><td>${esc(value)}</td></tr>`).join('')}</tbody>
     </table>
   `, nonce);
 }

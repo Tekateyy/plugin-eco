@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { initParser, parse } from './parser';
+import { defaultCoefficients, estimate, runMeasured } from './measure';
 import { collectFindings, filterDisabled } from './rules';
 import { computeScore, scoreSummary } from './scoring';
-import { buildWebviewHtml, buildWorkspaceHtml } from './webview';
+import { buildMeasureHtml, buildWebviewHtml, buildWorkspaceHtml } from './webview';
 import { analyzeWorkspace } from './workspace';
 import { MAX_EDITOR_FILE_BYTES, isSupported, specFor } from './languages';
 import { inferContext } from './context';
@@ -28,6 +30,11 @@ let lastFindings: Finding[] = [];
 let lastScore: Score = { letter: 'A', value: 100, findingCount: { high: 0, medium: 0, low: 0 } };
 let lastFileName = '';
 let lastPartial = false;
+
+/** Panneau de la mesure à l'exécution, distinct du rapport. */
+let measurePanel: vscode.WebviewPanel | undefined;
+/** Sortie des scripts mesurés : l'extension n'a pas de terminal à leur prêter. */
+let measureOutput: vscode.OutputChannel | undefined;
 
 // ---------------------------------------------------------------------------
 // Point d'entrée
@@ -79,6 +86,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
+  // Commande : mesurer le fichier actif à l'exécution (exécute son code)
+  context.subscriptions.push(
+    vscode.commands.registerCommand('greencoding.measure', () => {
+      const doc = vscode.window.activeTextEditor?.document;
+      if (!doc || !isSupported(doc.languageId)) {
+        vscode.window.showWarningMessage(
+          'Plugin Eco : ouvrez un fichier JavaScript, TypeScript, Python, PHP ou Java à mesurer.'
+        );
+        return;
+      }
+      measureFile(doc.uri.fsPath, context);
+    })
+  );
+
   // Événements document
   context.subscriptions.push(
     vscode.workspace.onDidOpenTextDocument(doc => {
@@ -116,6 +137,8 @@ export function deactivate(): void {
   diagnosticCollection?.dispose();
   statusBarItem?.dispose();
   panel?.dispose();
+  measurePanel?.dispose();
+  measureOutput?.dispose();
   debounceTimers.forEach(t => clearTimeout(t));
   debounceTimers.clear();
 }
@@ -251,12 +274,83 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
         // URI invalide ou fichier supprimé
       }
     }
+    // Bouton « Mesurer » du rapport fichier : mesure le fichier affiché.
+    if (message.command === 'measure' && panelMode === 'file' && lastFileName) {
+      measureFile(lastFileName, context);
+    }
   }, null, context.subscriptions);
 
   panel.onDidDispose(() => {
     panel = undefined;
     panelMode = 'file';
   }, null, context.subscriptions);
+}
+
+// ---------------------------------------------------------------------------
+// Mesure à l'exécution
+// ---------------------------------------------------------------------------
+
+/**
+ * Exécute le fichier sous la sonde et affiche la mesure dans son propre panneau.
+ * Uniquement sur action explicite (commande ou bouton), jamais à la sauvegarde.
+ */
+async function measureFile(fsPath: string, context: vscode.ExtensionContext): Promise<void> {
+  // La mesure exécute le fichier sur disque : des modifications non
+  // enregistrées ne seraient pas mesurées, sans que rien ne le signale.
+  const doc = vscode.workspace.textDocuments.find(d => d.uri.fsPath === fsPath);
+  if (doc && (doc.isUntitled || doc.isDirty)) {
+    vscode.window.showWarningMessage('Plugin Eco : enregistrez le fichier avant de le mesurer.');
+    return;
+  }
+
+  const fileName = path.basename(fsPath);
+  // Racine du workspace, comme quand on lance le script depuis le projet ;
+  // à défaut, le dossier du fichier.
+  const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(fsPath));
+  const cwd = folder ? folder.uri.fsPath : path.dirname(fsPath);
+
+  measureOutput ??= vscode.window.createOutputChannel('Plugin Eco — Mesure');
+  const output = measureOutput;
+  output.show(true);
+  output.appendLine(`▶ ${fsPath}`);
+
+  await vscode.window.withProgress({
+    location: vscode.ProgressLocation.Notification,
+    title: `⚡ Plugin Eco — Mesure de ${fileName}`,
+    cancellable: true,
+  }, async (_progress, token) => {
+    const controller = new AbortController();
+    token.onCancellationRequested(() => controller.abort());
+
+    try {
+      const result = await runMeasured(fsPath, {
+        cwd, signal: controller.signal, onOutput: chunk => output.append(chunk),
+      });
+      output.appendLine(`■ code de sortie ${result.exitCode ?? '?'}`);
+      showMeasurePanel(fileName, buildMeasureHtml(fsPath, result, estimate(result.raw, defaultCoefficients()), getNonce()), context);
+    } catch (err) {
+      const message = (err as Error).message;
+      output.appendLine(`■ ${message}`);
+      if (controller.signal.aborted) {
+        vscode.window.showInformationMessage('Plugin Eco : mesure annulée.');
+      } else {
+        vscode.window.showErrorMessage(`Plugin Eco : échec de la mesure — ${message}`);
+      }
+    }
+  });
+}
+
+function showMeasurePanel(fileName: string, html: string, context: vscode.ExtensionContext): void {
+  if (!measurePanel) {
+    measurePanel = vscode.window.createWebviewPanel(
+      'greencoding.measure', '⚡ Mesure', vscode.ViewColumn.Beside, { enableScripts: false }
+    );
+    measurePanel.onDidDispose(() => { measurePanel = undefined; }, null, context.subscriptions);
+  } else {
+    measurePanel.reveal(vscode.ViewColumn.Beside);
+  }
+  measurePanel.title = `⚡ Mesure — ${fileName}`;
+  measurePanel.webview.html = html;
 }
 
 // ---------------------------------------------------------------------------

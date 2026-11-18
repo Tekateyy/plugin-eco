@@ -191,9 +191,10 @@ describe('sûreté du manifeste', () => {
 });
 
 describe('frontière d\'exécution', () => {
-  // `plugin-eco measure` exécute du code : c'est le seul endroit du paquet qui
-  // le fait, et il ne doit être atteignable que sur commande explicite du CLI.
-  // Ni l'extension (activation, sauvegarde, scan du workspace), ni la
+  // `measure` exécute du code : c'est le seul endroit du paquet qui le fait,
+  // et il ne doit être atteignable que sur action explicite — la commande du
+  // CLI, ou dans l'éditeur la commande « Mesurer » et le bouton du rapport.
+  // Ni l'activation, ni la sauvegarde, ni le scan du workspace, ni la
   // bibliothèque `require('plugin-eco')` ne doivent pouvoir y mener. Ces
   // tests lisent le code réellement packagé (out/), pas les sources.
   const OUT = path.join(ROOT, 'out');
@@ -210,15 +211,28 @@ describe('frontière d\'exécution', () => {
     }
   });
 
-  test('seul le CLI importe measure.js', () => {
+  test('seuls le CLI et l\'extension importent measure.js', () => {
     for (const [file, code] of Object.entries(compiled)) {
       const uses = /require\(["']\.\/measure["']\)/.test(code);
-      assert.strictEqual(uses, file === 'cli.js',
+      const allowed = file === 'cli.js' || file === 'extension.js';
+      assert.strictEqual(uses, allowed,
         `${file} ${uses ? 'ne doit pas' : 'doit'} importer ./measure`);
     }
   });
 
-  test('l\'extension ne lance aucun processus', () => {
+  test('dans l\'extension, la mesure ne part que de la commande ou du bouton', () => {
+    const code = compiled['extension.js'];
+    // runMeasured n'est appelé qu'à un endroit : measureFile.
+    assert.strictEqual([...code.matchAll(/runMeasured\)\(/g)].length, 1, 'un seul appel à runMeasured');
+    // measureFile n'est appelé que depuis ses deux déclencheurs explicites.
+    const calls = [...code.matchAll(/(?<!function )\bmeasureFile\(/g)];
+    assert.strictEqual(calls.length, 2, 'measureFile : exactement deux appels');
+    const triggers = calls.map(m => code.slice(Math.max(0, m.index - 600), m.index));
+    assert.ok(triggers.some(t => t.includes("'greencoding.measure'")), 'appel depuis la commande');
+    assert.ok(triggers.some(t => t.includes("command === 'measure'")), 'appel depuis le bouton');
+  });
+
+  test('le reste de l\'extension ne lance aucun processus', () => {
     for (const file of ['extension.js', 'workspace.js', 'webview.js', 'index.js']) {
       assert.doesNotMatch(compiled[file], /\b(spawn|exec|execFile|fork)(Sync)?\(/,
         `${file} ne doit lancer aucun processus`);

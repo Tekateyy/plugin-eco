@@ -23,13 +23,14 @@ fichier s'affiche dans la barre de statut.
 ## Utilisation
 
 Ouvrir un fichier `.java`, `.js`, `.ts` ou `.py` : l'analyse démarre seule.
-Trois commandes dans la palette (`Ctrl+Shift+P`) :
+Quatre commandes dans la palette (`Ctrl+Shift+P`) :
 
 | Commande | Effet |
 |---|---|
 | `Greencoding: Analyser le fichier` | relance l'analyse du fichier actif |
 | `Greencoding: Ouvrir le rapport détaillé` | ouvre le panneau, score + détail par ligne |
 | `Greencoding: Analyser tout le workspace` | scanne tous les fichiers supportés, classe les fichiers du pire au meilleur |
+| `Greencoding: Mesurer le fichier actif (exécute le code)` | exécute le fichier et affiche sa consommation réelle — voir [Mesure à l'exécution](#mesure-à-lexécution-prototype) |
 
 ## Ce qui est détecté
 
@@ -212,6 +213,14 @@ Le CPU et la RAM réels se convertissent en Wh via des coefficients standards
 des hypothèses, pas des mesures, et `--tdp`, `--cores` et `--carbon` les
 ajustent. `--format json` rend la même mesure exploitable par un script.
 
+Dans VSCode, la commande `Greencoding: Mesurer le fichier actif` ou le bouton
+**Mesurer** du rapport détaillé lancent la même mesure, avec les réglages par
+défaut. Le résultat s'ouvre dans un panneau à part, la sortie du script dans
+l'onglet *Sortie* (« Plugin Eco — Mesure »), et la notification de progression
+permet d'annuler. Le fichier doit être enregistré ; il s'exécute depuis la
+racine du workspace. Un script Node y tourne avec le Node embarqué de VSCode
+(`node` du PATH à défaut).
+
 `--runs <n>` répète l'exécution et retient la médiane de chaque grandeur
 (CPU, RAM, durée), avec l'étendue observée affichée à côté — utile si une
 seule exécution semble bruitée :
@@ -280,9 +289,11 @@ sonde tourne dans le processus de *l'utilisateur final* : une dépendance
 unifiée s'installerait chez lui, pas chez nous.
 
 **Seul `measure` exécute du code, et seulement sur commande.** L'analyse
-statique ne fait que lire, à la frappe comme sur tout un workspace ;
-`plugin-eco measure` est l'unique exception, réservée au CLI — l'extension
-VSCode et `require('plugin-eco')` ne peuvent pas y mener.
+statique ne fait que lire, à la frappe comme sur tout un workspace ; la mesure
+est l'unique exception, déclenchée seulement par `plugin-eco measure` ou, dans
+VSCode, par la commande *Mesurer* et le bouton du rapport — jamais à
+l'ouverture, à la sauvegarde ni au scan du workspace. `require('plugin-eco')`
+ne peut pas y mener. Un test vérifie cette frontière dans le code packagé.
 
 **tree-sitter plutôt qu'une analyse par expressions régulières.** Distinguer une
 boucle imbriquée d'une boucle voisine, ou un `new` dans une boucle d'un `new`

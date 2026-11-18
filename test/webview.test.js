@@ -85,3 +85,50 @@ describe('rapport workspace', () => {
     assert.doesNotMatch(html, /<script>alert\(1\)<\/script>/);
   });
 });
+
+// --- Bouton « Mesurer » et panneau de mesure ---------------------------------
+
+const { buildMeasureHtml } = require('../out/webview');
+
+describe('rapport mono-fichier — bouton Mesurer', () => {
+  test('présent dès qu\'un fichier est affiché, avec un script autorisé par nonce', () => {
+    const html = buildWebviewHtml([], score('A', 100), 'a.js', 'n0nce');
+    assert.match(html, /<button id="measure"/);
+    assert.match(html, /<script nonce="n0nce">/);
+    assert.match(html, /script-src 'nonce-n0nce'/);
+    assert.match(html, /command: 'measure'/);
+  });
+
+  test('absent tant qu\'aucun fichier n\'a été analysé', () => {
+    const html = buildWebviewHtml([], score('A', 100), '', 'n0nce');
+    assert.doesNotMatch(html, /<button/);
+    assert.doesNotMatch(html, /script-src/);
+  });
+});
+
+describe('panneau de mesure', () => {
+  const result = {
+    raw: { cpuUserUs: 1_500_000, cpuSystemUs: 250_000, wallMs: 2000, maxRssBytes: 50 * 1024 ** 2 },
+    exitCode: 0,
+    samples: [],
+  };
+  const est = { wh: 0.0123, gCO2: 0.00064, hypotheses: '8.1 W/cœur (TDP 65 W / 8 cœurs)' };
+
+  test('reprend les grandeurs du CLI', () => {
+    const html = buildMeasureHtml('/p/bench.js', result, est, 'n');
+    assert.match(html, /code 0/);
+    assert.match(html, /1\.75 s \(user 1\.50 · system 0\.25\)/);
+    assert.match(html, /2\.00 s/);
+    assert.match(html, /max 50 Mo/);
+    assert.match(html, /0\.0123 Wh/);
+    assert.match(html, /0\.64 mg CO₂/);
+    assert.match(html, /8\.1 W\/cœur/);
+  });
+
+  test('aucun script, et le chemin du fichier est échappé', () => {
+    const html = buildMeasureHtml('<img src=x onerror=alert(1)>.js', result, est, 'n');
+    assert.doesNotMatch(html, /<script/);
+    assert.doesNotMatch(html, /<img src=x/);
+    assert.match(html, /&lt;img/);
+  });
+});
