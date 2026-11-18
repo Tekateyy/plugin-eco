@@ -127,11 +127,12 @@ describe('collectPaths', () => {
   test('un dossier est parcouru récursivement', () => {
     const found = collectPaths(path.join(ROOT, 'src'));
     assert.ok(found.length >= 8, `attendu au moins 8 fichiers, obtenu ${found.length}`);
-    // src/probe.js et src/probe.py sont les sondes runtime, volontairement
-    // hors TypeScript (voir measure.ts) : les deux seuls fichiers non-.ts du
-    // dossier, et tous deux analysables statiquement (JS et Python le sont).
+    // src/probe.js, src/probe.py et src/Probe.java sont les sondes runtime,
+    // volontairement hors TypeScript (voir measure.ts) : les seuls fichiers
+    // non-.ts du dossier, et tous analysables statiquement (JS, Python et Java
+    // sont des langages supportés).
     const autres = found.filter(f => !f.endsWith('.ts'));
-    assert.deepStrictEqual(autres.map(f => path.basename(f)).sort(), ['probe.js', 'probe.py']);
+    assert.deepStrictEqual(autres.map(f => path.basename(f)).sort(), ['Probe.java', 'probe.js', 'probe.py']);
   });
 
   test('les dossiers exclus ne sont pas parcourus', () => {
