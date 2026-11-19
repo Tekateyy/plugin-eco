@@ -19,7 +19,8 @@ export type RuleId =
   | 'sync-io-in-function'
   | 'polling-interval'
   | 'unthrottled-event-listener'
-  | 'whole-library-import';
+  | 'whole-library-import'
+  | 'query-in-loop';
 
 /**
  * Où s'exécute le code analysé.

@@ -48,8 +48,9 @@ describe('descripteurs de langage', () => {
     assert.ok(!js.includes('object-creation-in-loop'), 'bruit en JS : GC générationnel');
   });
 
-  test('Java conserve les six règles', () => {
-    assert.strictEqual(specFor('java').rules.length, 6);
+  test('Java a sept règles, query-in-loop comprise', () => {
+    assert.strictEqual(specFor('java').rules.length, 7);
+    assert.ok(specFor('java').rules.includes('query-in-loop'));
   });
 
   test('Python a un contexte fixé au serveur, comme Java', () => {

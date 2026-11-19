@@ -69,3 +69,19 @@ def build_report(items):
     for item in items:
         report += item + "\n"
     return report
+
+
+
+def load_orders(cursor, customer_ids):
+    """Une requête par client (N+1) : signalée."""
+    orders = []
+    for customer_id in customer_ids:
+        cursor.execute("SELECT * FROM orders WHERE customer_id = %s LIMIT 100", (customer_id,))
+        orders.extend(cursor.fetchall())
+    return orders
+
+
+def load_orders_once(cursor, customer_ids):
+    """Une seule requête, dont on parcourt le résultat : rien à signaler."""
+    query = "SELECT * FROM orders WHERE customer_id = ANY(%s) LIMIT 1000"
+    return [row for row in cursor.execute(query, (customer_ids,))]

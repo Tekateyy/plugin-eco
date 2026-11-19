@@ -40,6 +40,7 @@ Quatre commandes dans la palette (`Ctrl+Shift+P`) :
 |---|---|---|
 | Boucle imbriquée (complexité ≥ O(n²)) | haute | 15 |
 | Requête SQL sans `LIMIT` | haute | 12 |
+| Requête SQL à chaque tour de boucle (N+1) | haute | 12 |
 | `await` dans une boucle (appels enchaînés) | haute | 12 |
 | Regex recompilée en boucle | haute | 12 |
 
@@ -67,7 +68,16 @@ marché ; CPython, lui, réalloue `s += t` sur place quand la chaîne n'a qu'une
 référence, et `total += 1` en boucle est un idiome trop courant pour être
 signalé. Les deux langages arrivent à la même exclusion par des chemins
 différents. PHP, qui étend `$s .= $t` sur place pour la même raison que
-CPython, n'hérite que de la boucle imbriquée et de la requête SQL sans `LIMIT`.
+CPython, n'hérite que de la boucle imbriquée, de la requête SQL sans `LIMIT` et
+de la requête en boucle.
+
+**Requête en boucle (N+1)** : un appel `execute()`/`query()` sur un objet nommé
+comme une connexion (`cursor`, `conn`, `db`, `pdo`, `$wpdb`, `stmt`…) à l'intérieur
+d'une boucle ou d'une compréhension. Ne sont pas signalés : la collection que la
+boucle parcourt (`for row in cur.execute(q)`, évaluée une fois), `executemany()`,
+et l'exécution d'une liste de textes SQL différents (`for sql in liste:
+cur.execute(sql)`), qui n'est pas un N+1. Les appels HTTP en boucle ne sont pas
+couverts : trop de cas légitimes (tests, téléchargements d'URL distinctes).
 
 Une règle restreinte à un côté ne se déclenche **jamais** sur un fichier dont le
 contexte est indéterminé : sans certitude, le plugin se tait.

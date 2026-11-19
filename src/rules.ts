@@ -1,6 +1,6 @@
 import Parser from 'web-tree-sitter';
 import { ExecutionContext, Finding, RuleId } from './types';
-import { LanguageSpec, NodeNames, ruleAppliesIn } from './languages';
+import { LanguageSpec, NodeNames, QueryCalls, ruleAppliesIn } from './languages';
 
 /** Méthodes d'I/O bloquantes à détecter lorsqu'elles sont appelées en boucle. */
 const IO_METHOD_NAMES = new Set([
@@ -119,6 +119,7 @@ function looksLikeQuery(upper: string): boolean {
  *  4. regex-compile-in-loop    Pattern.compile() en boucle    (haute,   poids 12)
  *  5. blocking-io-in-loop      I/O bloquant en boucle         (haute,   poids 12)
  *  6. sql-without-limit        Requête SQL sans LIMIT         (haute,   poids 12)
+ *  7. query-in-loop            Requête SQL par tour (N+1)     (haute,   poids 12)
  */
 export function collectFindings(
   root: Parser.SyntaxNode,
@@ -128,9 +129,13 @@ export function collectFindings(
   const findings: Finding[] = [];
   const ctx: Ctx = {
     nodes: spec.nodes,
+    queryCalls: spec.queryCalls,
     active: (rule: RuleId) => spec.rules.includes(rule) && ruleAppliesIn(rule, context),
   };
-  traverse(root, { loopDepth: 0, inLoop: false, inLoopHere: false, inFunction: false }, findings, ctx);
+  traverse(root, {
+    loopDepth: 0, inLoop: false, inLoopHere: false, inFunction: false, repeatsHere: false,
+    loopVars: [],
+  }, findings, ctx);
   return findings;
 }
 
@@ -149,6 +154,7 @@ export function filterDisabled(findings: Finding[], disabledRules: readonly Rule
 
 interface Ctx {
   nodes: NodeNames;
+  queryCalls: QueryCalls;
   active: (rule: RuleId) => boolean;
 }
 
@@ -159,7 +165,19 @@ interface Scope {
   /** Dans une boucle **de la fonction courante** : une callback n'en est pas. */
   inLoopHere: boolean;
   inFunction: boolean;
+  /**
+   * Évalué à chaque tour d'une boucle de la fonction courante. Plus strict que
+   * `inLoopHere` : la collection parcourue (`for row in cur.execute(q)`) et
+   * l'initialisation d'une boucle ne s'évaluent qu'une fois. Lu par `query-in-loop`,
+   * pour qui cet en-tête est justement la bonne façon de faire.
+   */
+  repeatsHere: boolean;
+  /** Variables liées par les boucles et compréhensions de la fonction courante. */
+  loopVars: string[];
 }
+
+/** Parties d'une boucle réévaluées à chaque tour, mêmes noms de champ dans les quatre grammaires. */
+const REPEATED_LOOP_FIELDS = ['body', 'condition', 'update', 'increment'];
 
 // ---------------------------------------------------------------------------
 // Traversée récursive
@@ -183,6 +201,12 @@ function traverse(
     inLoop: inLoop || isLoop,
     inLoopHere: isFunction ? false : (scope.inLoopHere || isLoop),
     inFunction: scope.inFunction || isFunction,
+    repeatsHere: isFunction ? false : scope.repeatsHere,
+    loopVars: isFunction
+      ? []
+      : (isLoop || ctx.nodes.comprehensions.includes(node.type))
+        ? [...scope.loopVars, ...loopVariables(node)]
+        : scope.loopVars,
   };
   const nextInLoop = next.inLoop;
 
@@ -428,9 +452,146 @@ function traverse(
   }
 
   // Récursion sur les enfants nommés
-  for (const child of node.namedChildren) {
-    traverse(child, next, findings, ctx);
+  // ── Règle 7 : requête SQL à chaque tour de boucle (N+1) ───────────────────
+  if (ctx.active('query-in-loop') && scope.repeatsHere && ctx.nodes.call.includes(node.type) &&
+      isQueryCall(node, ctx) && !firstArgIsLoopVariable(node, scope.loopVars)) {
+    findings.push({
+      ...span(node),
+      message:
+        `Requête \`${calleeParts(node).name}()\` à chaque tour de boucle — une requête par ` +
+        'élément (N+1). Charger les données en une seule requête avant la boucle (IN, JOIN) ' +
+        'ou exécuter par lot.',
+      severity: 'high',
+      weight: 12,
+      ruleId: 'query-in-loop',
+    });
   }
+
+  const repeated = isLoop
+    ? new Set(REPEATED_LOOP_FIELDS.map(f => node.childForFieldName(f)?.id))
+    : null;
+  const isComprehension = ctx.nodes.comprehensions.includes(node.type);
+  let forClauses = 0;
+
+  for (const child of node.namedChildren) {
+    let repeatsHere = next.repeatsHere;
+    if (repeated) {
+      repeatsHere = scope.repeatsHere || repeated.has(child.id);
+    } else if (isComprehension) {
+      // Le corps et les filtres sont répétés ; la collection du premier `for`
+      // est évaluée une fois, celle des `for` suivants à chaque tour du précédent.
+      repeatsHere = child.type === 'for_in_clause'
+        ? scope.repeatsHere || forClauses++ > 0
+        : true;
+    }
+    traverse(child, { ...next, repeatsHere }, findings, ctx);
+  }
+}
+
+/**
+ * Variables qu'une boucle ou une compréhension lie à chaque tour.
+ *
+ * Les quatre grammaires ne les rangent pas pareil : `left` en Python et JS (un
+ * identifiant ou un motif de déstructuration), `name` en Java (`for (T x : xs)`),
+ * et en PHP aucun champ — les variables sont les enfants du `foreach` qui suivent
+ * la collection, avant le corps. Les boucles à compteur (`for (int i = 0; …)`) et
+ * `while` ne lient rien de ce genre.
+ */
+function loopVariables(node: Parser.SyntaxNode): string[] {
+  const names: string[] = [];
+  const collect = (n: Parser.SyntaxNode | null) => {
+    if (!n) return;
+    if (n.type === 'identifier' || n.type === 'variable_name' ||
+        n.type === 'shorthand_property_identifier_pattern') names.push(n.text);
+    else for (const child of n.namedChildren) collect(child);
+  };
+
+  if (node.type === 'foreach_statement') {
+    const body = node.childForFieldName('body');
+    node.namedChildren.slice(1).filter(ch => !body || ch.id !== body.id).forEach(collect);
+  } else if (node.type === 'enhanced_for_statement') {
+    collect(node.childForFieldName('name'));
+  } else if (node.type.endsWith('comprehension') || node.type === 'generator_expression') {
+    node.namedChildren.filter(ch => ch.type === 'for_in_clause')
+      .forEach(ch => collect(ch.childForFieldName('left')));
+  } else {
+    collect(node.childForFieldName('left'));
+  }
+  return names;
+}
+
+/**
+ * Le premier argument est-il la variable de boucle, ou un de ses éléments ?
+ *
+ * `for sql in statements: cursor.execute(sql)` exécute des textes SQL
+ * différents : ce n'est pas un N+1, qui répète la même requête avec des
+ * paramètres qui changent. Vaut aussi pour `q["sql"]`, `$q->sql`, `q.sql`.
+ */
+function firstArgIsLoopVariable(node: Parser.SyntaxNode, loopVars: string[]): boolean {
+  let arg: Parser.SyntaxNode | null | undefined = node.childForFieldName('arguments')?.namedChildren[0];
+  // PHP enveloppe chaque argument dans un nœud `argument`.
+  if (arg?.type === 'argument') arg = arg.namedChildren[0];
+
+  // Remonte jusqu'à la racine : `row["sql"]`, `row.sql`, `$row->sql` → `row`.
+  for (let depth = 0; arg && depth < 10; depth++) {
+    // PHP n'a pas de champ pour l'objet d'un `$q['sql']` : c'est le premier enfant.
+    const inner: Parser.SyntaxNode | null =
+      arg.childForFieldName('object') ?? arg.childForFieldName('value') ??
+      (arg.type.includes('subscript') ? arg.namedChildren[0] : null);
+    if (!inner) break;
+    arg = inner;
+  }
+  return !!arg && loopVars.includes(arg.text);
+}
+
+/** L'appel fait-il un aller-retour vers une base de données ? */
+function isQueryCall(node: Parser.SyntaxNode, ctx: Ctx): boolean {
+  const { name } = calleeParts(node);
+  const object = calleeObject(node);
+  const calls = ctx.queryCalls;
+
+  if (object) {
+    const words = receiverWords(lastSegment(object, ctx));
+    return calls.methods.some(m => m.names.includes(name) && m.receivers.some(r => words.has(r)));
+  }
+  return calls.functions.includes(name);
+}
+
+/** Objet appelant d'un appel de méthode, ou null pour une fonction libre. */
+function calleeObject(node: Parser.SyntaxNode): Parser.SyntaxNode | null {
+  if (node.childForFieldName('name')) return node.childForFieldName('object');
+  const callee = node.childForFieldName('function');
+  if (callee?.type === 'member_expression' || callee?.type === 'attribute') {
+    return callee.childForFieldName('object');
+  }
+  return null;
+}
+
+/**
+ * Nom qui désigne l'objet appelant : le dernier maillon d'une chaîne
+ * (`self.db` → `db`, `$this->dbh` → `dbh`), ou la méthode qui l'a produit
+ * (`conn.cursor()` → `cursor`).
+ */
+function lastSegment(object: Parser.SyntaxNode, ctx: Ctx): string {
+  if (ctx.nodes.call.includes(object.type)) return calleeParts(object).name;
+  for (const field of ['property', 'attribute', 'field', 'name']) {
+    const segment = object.childForFieldName(field);
+    if (segment) return segment.text;
+  }
+  return object.text;
+}
+
+/**
+ * Mots d'un identifiant, plus l'identifiant entier : `order_cursor` → order,
+ * cursor, ordercursor ; `httpClient` → http, client, httpclient. `$pdo` → pdo.
+ */
+function receiverWords(identifier: string): Set<string> {
+  const clean = identifier.replace(/[^A-Za-z0-9_]/g, '');
+  const words = clean
+    .split(/_|(?<=[a-z0-9])(?=[A-Z])/)
+    .filter(Boolean)
+    .map(w => w.toLowerCase());
+  return new Set([...words, clean.replace(/_/g, '').toLowerCase()]);
 }
 
 // ---------------------------------------------------------------------------

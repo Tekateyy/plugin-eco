@@ -43,3 +43,29 @@ export function describe(orders: readonly Order[]): string {
   }
   return out;
 }
+
+interface Db {
+  query(sql: string, params?: unknown[]): Promise<unknown[]>;
+}
+
+/**
+ * Une requête par commande (N+1) : signalée. Attendue dans la boucle, elle
+ * l'est aussi par la règle « await en boucle ».
+ */
+export async function loadLines(db: Db, orderIds: readonly string[]): Promise<unknown[][]> {
+  const all: unknown[][] = [];
+  for (const id of orderIds) {
+    all.push(await db.query('SELECT * FROM lines WHERE order_id = $1 LIMIT 100', [id]));
+  }
+  return all;
+}
+
+/** Une seule requête, dont on parcourt le résultat : rien à signaler. */
+export async function countLines(db: Db): Promise<number> {
+  const rows = await db.query('SELECT order_id FROM lines LIMIT 1000');
+  let n = 0;
+  for (const row of rows) {
+    if (row) n++;
+  }
+  return n;
+}
