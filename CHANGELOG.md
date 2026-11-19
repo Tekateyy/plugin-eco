@@ -6,6 +6,8 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+## [0.6.0] — 2026-11-18
+
 ### Ajouté
 - Mesure à l'exécution dans VSCode : commande « Greencoding: Mesurer le fichier
   actif » et bouton « Mesurer » du rapport. Résultat dans un panneau à part,
