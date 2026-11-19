@@ -20,20 +20,20 @@ before(async () => {
   score = computeScore(findings);
 });
 
-// Test de référence : samples/Example.java déclenche les six règles.
+// Test de référence : samples/Example.java déclenche les sept règles Java.
 // C'est le fichier de démonstration du README — s'il change, ces attendus aussi.
 describe('samples/Example.java — analyse de bout en bout', () => {
-  test('le score attendu est E 28/100', () => {
+  test('le score attendu est E 16/100', () => {
     assert.strictEqual(score.letter, 'E');
-    assert.strictEqual(score.value, 28);
+    assert.strictEqual(score.value, 16);
   });
 
-  test('7 findings, dont 4 hauts et 3 moyens', () => {
-    assert.strictEqual(findings.length, 7);
-    assert.deepStrictEqual(score.findingCount, { high: 4, medium: 3, low: 0 });
+  test('8 findings, dont 5 hauts et 3 moyens', () => {
+    assert.strictEqual(findings.length, 8);
+    assert.deepStrictEqual(score.findingCount, { high: 5, medium: 3, low: 0 });
   });
 
-  test('les six règles sont représentées', () => {
+  test('les sept règles sont représentées', () => {
     const present = (needle) => findings.some(f => f.message.includes(needle));
     assert.ok(present('imbriquée'), 'règle 1 absente');
     assert.ok(present('+='), 'règle 2 absente');
@@ -41,6 +41,7 @@ describe('samples/Example.java — analyse de bout en bout', () => {
     assert.ok(present('Pattern.compile'), 'règle 4 absente');
     assert.ok(present('I/O bloquant'), 'règle 5 absente');
     assert.ok(present('LIMIT'), 'règle 6 absente');
+    assert.ok(findings.some(f => f.ruleId === 'query-in-loop'), 'règle 7 absente');
   });
 
   test('chaque finding porte une position et un poids exploitables', () => {

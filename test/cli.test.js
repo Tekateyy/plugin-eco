@@ -333,7 +333,7 @@ describe('exécution réelle du binaire', () => {
   test('analyse samples/ et rend le score attendu', () => {
     const r = run(['samples']);
     assert.strictEqual(r.code, 0);
-    assert.match(r.stdout, /Éco : D 48\/100/);
+    assert.match(r.stdout, /Éco : D 36\/100/);
     assert.match(r.stdout, /samples\/Example\.java/);
   });
 
@@ -379,8 +379,8 @@ describe('exécution réelle du binaire', () => {
   test('--format github émet les annotations puis le résumé sur stdout', () => {
     const r = run(['--format', 'github', 'samples/Example.java']);
     assert.strictEqual(r.code, 0);
-    assert.match(r.stdout, /^::error file=samples\/Example\.java,line=21,col=13,title=nested-loops::/m);
-    assert.match(r.stdout, /^## 🟥 Éco : E 28\/100/m);
+    assert.match(r.stdout, /^::error file=samples\/Example\.java,line=22,col=13,title=nested-loops::/m);
+    assert.match(r.stdout, /^## 🟥 Éco : E 16\/100/m);
   });
 
   test('--format github ajoute le résumé à GITHUB_STEP_SUMMARY quand la variable existe', () => {
@@ -391,14 +391,14 @@ describe('exécution réelle du binaire', () => {
     const written = fs.readFileSync(summary, 'utf8');
     // Ajouté, pas écrasé : d'autres steps peuvent avoir écrit avant.
     assert.ok(written.startsWith('déjà là\n'));
-    assert.match(written, /## 🟨 Éco : C 73\/100/);
+    assert.match(written, /## 🟧 Éco : D 49\/100/);
     assert.ok(!written.includes('::error'), 'les commandes ne vont pas dans le résumé');
   });
 
   test('--format github sous le seuil : erreur de verdict en tête et code 1', () => {
     const r = run(['--format', 'github', '--min', 'A', 'samples/example.ts']);
     assert.strictEqual(r.code, 1);
-    assert.ok(r.stdout.startsWith('::error title=Plugin Eco::Note C en dessous du seuil A.\n'));
+    assert.ok(r.stdout.startsWith('::error title=Plugin Eco::Note D en dessous du seuil A.\n'));
     assert.match(r.stderr, /en dessous du seuil A/);
   });
 
@@ -410,12 +410,12 @@ describe('exécution réelle du binaire', () => {
   });
 
   test('--ignore-rule retire les findings de cette règle et recalcule le score', () => {
-    // samples/Example.java : E 28/100 (voir sample.test.js). En retirant les
+    // samples/Example.java : E 16/100 (voir sample.test.js). En retirant les
     // deux règles hautes nested-loops et sql-without-limit, il ne reste que
-    // 2 hautes (24) + 3 moyennes (21) = 45 de pénalité, donc C 55/100.
+    // 3 hautes (36) + 3 moyennes (21) = 57 de pénalité, donc D 43/100.
     const r = run(['--ignore-rule', 'nested-loops', '--ignore-rule', 'sql-without-limit', 'samples/Example.java']);
     assert.strictEqual(r.code, 0);
-    assert.match(r.stdout, /Éco : C 55\/100/);
+    assert.match(r.stdout, /Éco : D 43\/100/);
     assert.ok(!r.stdout.includes('imbriquée'));
     assert.ok(!r.stdout.includes('LIMIT'));
   });

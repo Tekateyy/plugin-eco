@@ -2,7 +2,7 @@ import java.io.BufferedReader;
 import java.util.regex.Pattern;
 
 /**
- * Fichier de démonstration Plugin Eco — 6 patterns énergivores.
+ * Fichier de démonstration Plugin Eco — 7 patterns énergivores.
  *
  * Findings attendus :
  *  R1 - Boucle imbriquée        → ⚠ sur la boucle interne de sumMatrix()
@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
  *  R4 - Pattern.compile boucle  → ⚠ sur validateEmails()
  *  R5 - I/O bloquant en boucle  → ⚠ sur readLines()
  *  R6 - SQL sans LIMIT          → ⚠ sur fetchUsers()
+ *  R7 - Requête en boucle (N+1) → ⚠ sur loadOrders()
  */
 public class Example {
 
@@ -86,5 +87,24 @@ public class Example {
     public void fetchUsersLimited() {
         String query = "SELECT * FROM users WHERE active = true LIMIT 50"; // paginé ✓
         System.out.println("Requête : " + query);
+    }
+
+    // ── R7 : Requête en boucle (N+1) ─────────────────────────────────────────
+    public void loadOrders(java.sql.Connection conn, java.util.List<Long> ids) throws java.sql.SQLException {
+        java.sql.PreparedStatement ps =
+            conn.prepareStatement("SELECT * FROM orders WHERE customer_id = ? LIMIT 100");
+        for (Long id : ids) {
+            ps.setLong(1, id);
+            ps.executeQuery(); // ⚠ une requête par client
+        }
+    }
+
+    public int countOrders(java.sql.Statement stmt) throws java.sql.SQLException {
+        java.sql.ResultSet rs = stmt.executeQuery("SELECT id FROM orders LIMIT 1000"); // une seule requête ✓
+        int n = 0;
+        while (rs.next()) {
+            n++;
+        }
+        return n;
     }
 }

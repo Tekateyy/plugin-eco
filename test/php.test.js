@@ -30,8 +30,9 @@ describe('descripteur PHP', () => {
     assert.strictEqual(spec.fixedContext, 'server');
   });
 
-  test('seules les deux règles transposables sont actives', () => {
-    assert.deepStrictEqual([...specFor('php').rules].sort(), ['nested-loops', 'sql-without-limit']);
+  test('seules les règles transposables sont actives, N+1 compris', () => {
+    assert.deepStrictEqual(
+      [...specFor('php').rules].sort(), ['nested-loops', 'query-in-loop', 'sql-without-limit']);
   });
 
   test('le contexte est serveur sans inférence', () => {
@@ -128,6 +129,8 @@ describe('samples/example.php', () => {
     assert.strictEqual(byRule(findings, 'nested-loops').length, 1);
     // ALL_USERS, la requête interpolée et le heredoc ; pas RECENT_USERS.
     assert.strictEqual(byRule(findings, 'sql-without-limit').length, 3);
-    assert.strictEqual(findings.length, 4);
+    // loadOrders() ; pas loadOrdersOnce(), qui parcourt le résultat d'une seule requête.
+    assert.strictEqual(byRule(findings, 'query-in-loop').length, 1);
+    assert.strictEqual(findings.length, 5);
   });
 });

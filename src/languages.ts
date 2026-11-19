@@ -36,6 +36,8 @@ export const RULE_CONTEXTS: Record<RuleId, 'any' | ExecutionContext[]> = {
   'unthrottled-event-listener': ['client'],
   // Le poids du bundle est transféré sur le réseau vers chaque visiteur.
   'whole-library-import': ['client'],
+  // Une requête par tour de boucle coûte un aller-retour des deux côtés.
+  'query-in-loop': 'any',
 };
 
 /** La règle s'applique-t-elle à un fichier dont le contexte est celui-ci ? */
@@ -63,6 +65,30 @@ export interface NodeNames {
   functions: string[];
   /** Attente asynchrone — `await_expression` en JS, `await` en Python, rien en Java. */
   await: string[];
+  /**
+   * Compréhensions (Python) : leur corps et leurs filtres sont répétés, mais pas
+   * la collection du premier `for`. Seule `query-in-loop` les lit.
+   */
+  comprehensions: string[];
+}
+
+/**
+ * Appels qui font un aller-retour vers une base de données, pour `query-in-loop`.
+ *
+ * Un nom de méthode ne suffit pas : `execute()` ou `query()` sont trop courants
+ * (`task.execute()`, `$builder->query()`). Une méthode n'est retenue que si
+ * l'objet appelant porte un nom de connexion — comparé au dernier segment de
+ * l'objet (`self.order_cursor` → `order_cursor`), découpé en mots
+ * (`order`, `cursor`) ou pris en entier (`jdbcTemplate` → `jdbctemplate`).
+ *
+ * Les appels HTTP en boucle ne sont volontairement pas couverts : sur du vrai
+ * code, `fetch()` en boucle est presque toujours légitime (tests, attente d'un
+ * port, téléchargements d'URL distinctes).
+ */
+export interface QueryCalls {
+  methods: { names: string[]; receivers: string[] }[];
+  /** Fonctions libres, sans objet appelant : leur nom suffit. */
+  functions: string[];
 }
 
 export interface LanguageSpec {
@@ -78,6 +104,8 @@ export interface LanguageSpec {
   nodes: NodeNames;
   /** Règles applicables. Une règle absente n'est jamais évaluée. */
   rules: RuleId[];
+  /** Appels de requête reconnus par `query-in-loop`. */
+  queryCalls: QueryCalls;
   /**
    * Contexte d'exécution connu d'avance, qui dispense de l'inférence.
    * Java n'a pas de moitié navigateur : c'est du serveur par construction.
@@ -96,6 +124,7 @@ const JAVA_NODES: NodeNames = {
   compoundAssignment: ['assignment_expression'],
   functions: ['method_declaration', 'constructor_declaration', 'lambda_expression'],
   await: [],
+  comprehensions: [],
 };
 
 // Les grammaires typescript et tsx étendent toutes deux javascript :
@@ -111,6 +140,7 @@ const JS_NODES: NodeNames = {
     'method_definition', 'generator_function_declaration',
   ],
   await: ['await_expression'],
+  comprehensions: [],
 };
 
 // Python n'a pas de `new` : instancier une classe est un appel comme un autre,
@@ -120,7 +150,8 @@ const JS_NODES: NodeNames = {
 //
 // Les compréhensions (`[x for a in xs for x in a]`) ne sont pas des boucles au
 // sens du descripteur : leurs `for_in_clause` sont frères, pas imbriqués, et
-// la règle de profondeur ne les verrait pas. Non traité pour l'instant.
+// la règle de profondeur ne les verrait pas. Seule `query-in-loop` les lit,
+// via `comprehensions`.
 const PY_NODES: NodeNames = {
   loops: ['for_statement', 'while_statement'],
   objectCreation: [],
@@ -129,6 +160,9 @@ const PY_NODES: NodeNames = {
   compoundAssignment: ['augmented_assignment'],
   functions: ['function_definition', 'lambda'],
   await: ['await'],
+  comprehensions: [
+    'list_comprehension', 'set_comprehension', 'dictionary_comprehension', 'generator_expression',
+  ],
 };
 
 // PHP : `foreach` est la boucle courante, et `new` existe (object_creation_expression),
@@ -148,6 +182,42 @@ const PHP_NODES: NodeNames = {
     'anonymous_function_creation_expression', 'arrow_function',
   ],
   await: [],
+  comprehensions: [],
+};
+
+// --- Appels de requête (query-in-loop) -------------------------------------
+
+const JAVA_QUERY_CALLS: QueryCalls = {
+  methods: [
+    { names: ['executeQuery', 'executeUpdate', 'execute'],
+      receivers: ['stmt', 'statement', 'ps', 'pstmt', 'conn', 'connection'] },
+    { names: ['query', 'queryForObject', 'update'], receivers: ['jdbctemplate'] },
+  ],
+  functions: [],
+};
+
+const JS_QUERY_CALLS: QueryCalls = {
+  methods: [
+    { names: ['query', 'execute'], receivers: ['db', 'pool', 'client', 'conn', 'connection'] },
+  ],
+  functions: [],
+};
+
+// `executemany` n'y est pas : c'est justement le remède au N+1.
+const PY_QUERY_CALLS: QueryCalls = {
+  methods: [
+    { names: ['execute'],
+      receivers: ['cursor', 'cur', 'conn', 'connection', 'db', 'database', 'session'] },
+  ],
+  functions: [],
+};
+
+const PHP_QUERY_CALLS: QueryCalls = {
+  methods: [
+    { names: ['query', 'exec', 'execute', 'get_results', 'get_row', 'get_var', 'get_col'],
+      receivers: ['pdo', 'db', 'dbh', 'conn', 'connection', 'mysqli', 'stmt', 'sth', 'wpdb'] },
+  ],
+  functions: ['mysqli_query', 'pg_query'],
 };
 
 // --- Règles ---------------------------------------------------------------
@@ -159,6 +229,7 @@ const JAVA_RULES: RuleId[] = [
   'regex-compile-in-loop',
   'blocking-io-in-loop',
   'sql-without-limit',
+  'query-in-loop',
 ];
 
 /**
@@ -181,6 +252,7 @@ const JS_RULES: RuleId[] = [
   'polling-interval',
   'unthrottled-event-listener',
   'whole-library-import',
+  'query-in-loop',
 ];
 
 /**
@@ -190,8 +262,8 @@ const JS_RULES: RuleId[] = [
  * `s += t` sur place quand la chaîne n'a qu'une référence, et `total += 1`
  * en boucle est partout — la règle ferait surtout du bruit sur des compteurs.
  * `object-creation-in-loop` n'a pas de nœud à lire (pas de `new`).
- * `blocking-io-in-loop` attend sa version Python (requête HTTP ou
- * `cursor.execute()` en boucle), à concevoir et valider sur du vrai code.
+ * `blocking-io-in-loop` reste absente : `readline()` en boucle est idiomatique.
+ * Le vrai problème, la requête SQL ou HTTP en boucle (N+1), est `query-in-loop`.
  * Les règles web n'ont pas de sens : Python tourne côté serveur.
  */
 const PY_RULES: RuleId[] = [
@@ -199,6 +271,7 @@ const PY_RULES: RuleId[] = [
   'regex-compile-in-loop',
   'sql-without-limit',
   'await-in-loop',
+  'query-in-loop',
 ];
 
 /**
@@ -214,12 +287,13 @@ const PY_RULES: RuleId[] = [
  *    a pas d'étape de compilation à sortir de la boucle ;
  *  - `blocking-io-in-loop` : `while (($l = fgets($f)) !== false)` est la façon
  *    normale de lire un fichier, la règle ferait des faux positifs (même cas que
- *    Python). La vraie cible, la requête SQL en boucle (N+1), est à concevoir ;
+ *    Python). La vraie cible, la requête en boucle (N+1), est `query-in-loop` ;
  *  - `await-in-loop` et les règles web : PHP est synchrone et tourne côté serveur.
  */
 const PHP_RULES: RuleId[] = [
   'nested-loops',
   'sql-without-limit',
+  'query-in-loop',
 ];
 
 // --- Descripteurs ---------------------------------------------------------
@@ -232,6 +306,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.java'],
     nodes: JAVA_NODES,
     rules: JAVA_RULES,
+    queryCalls: JAVA_QUERY_CALLS,
     fixedContext: 'server',
   },
   {
@@ -243,6 +318,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.js', '.jsx', '.mjs', '.cjs'],
     nodes: JS_NODES,
     rules: JS_RULES,
+    queryCalls: JS_QUERY_CALLS,
   },
   {
     // .ts exige la grammaire typescript : tsx lit `<T>valeur` comme une
@@ -253,6 +329,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.ts'],
     nodes: JS_NODES,
     rules: JS_RULES,
+    queryCalls: JS_QUERY_CALLS,
   },
   {
     label: 'TypeScript React',
@@ -261,6 +338,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.tsx'],
     nodes: JS_NODES,
     rules: JS_RULES,
+    queryCalls: JS_QUERY_CALLS,
   },
   {
     label: 'Python',
@@ -269,6 +347,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.py'],
     nodes: PY_NODES,
     rules: PY_RULES,
+    queryCalls: PY_QUERY_CALLS,
     // Python n'a pas de moitié navigateur, comme Java : c'est du serveur par
     // construction, dispensé de l'inférence client/serveur.
     fixedContext: 'server',
@@ -280,6 +359,7 @@ export const LANGUAGES: LanguageSpec[] = [
     extensions: ['.php'],
     nodes: PHP_NODES,
     rules: PHP_RULES,
+    queryCalls: PHP_QUERY_CALLS,
     // Pas de moitié navigateur : du serveur par construction.
     fixedContext: 'server',
   },

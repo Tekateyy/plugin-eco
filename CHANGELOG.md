@@ -6,6 +6,12 @@ celle du champ `version` de `package.json`.
 
 ## [Non publié]
 
+### Ajouté
+- Nouvelle règle `query-in-loop` : requête SQL à chaque tour de boucle (N+1),
+  en Java (JDBC), JavaScript/TypeScript, Python et PHP, compréhensions Python
+  comprises. Une liste de textes SQL différents exécutés tour à tour n'est pas
+  signalée.
+
 ## [0.6.0] — 2026-11-18
 
 ### Ajouté

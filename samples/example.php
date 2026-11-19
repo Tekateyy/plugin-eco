@@ -75,3 +75,25 @@ function validateEmails(array $emails): array
     }
     return $results;
 }
+
+function loadOrders(PDO $pdo, array $customerIds): array
+{
+    // Une requête par client (N+1) : signalée.
+    $orders = [];
+    $stmt = $pdo->prepare('SELECT * FROM orders WHERE customer_id = ? LIMIT 100');
+    foreach ($customerIds as $id) {
+        $stmt->execute([$id]);
+        $orders[] = $stmt->fetchAll();
+    }
+    return $orders;
+}
+
+function loadOrdersOnce(PDO $pdo): array
+{
+    // Une seule requête, dont on parcourt le résultat : rien à signaler.
+    $orders = [];
+    foreach ($pdo->query('SELECT * FROM orders LIMIT 1000') as $row) {
+        $orders[] = $row;
+    }
+    return $orders;
+}
