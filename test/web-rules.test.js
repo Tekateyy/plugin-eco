@@ -331,6 +331,20 @@ describe('la règle SQL ne se déclenche que sur de vraies requêtes', () => {
     assert.deepStrictEqual(messages(f), []);
   });
 
+  test('une phrase avec un seul mot entre Select et from ne compte pas', () => {
+    for (const msg of ['Select one from the list', 'select it from this menu', 'Select one from your files']) {
+      const f = analyze(`export const msg = "${msg}";`, 'server');
+      assert.deepStrictEqual(messages(f), [], msg);
+    }
+  });
+
+  test('un nom de table ou un alias court après FROM reste une requête', () => {
+    for (const q of ['SELECT id FROM a', 'SELECT id FROM theme', 'SELECT id FROM an_table']) {
+      const f = matching(analyze(`export const q = "${q}";`, 'server'), 'LIMIT');
+      assert.strictEqual(f.length, 1, q);
+    }
+  });
+
   test('les formes courantes de liste de colonnes restent détectées', () => {
     for (const q of [
       'SELECT * FROM t',

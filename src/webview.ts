@@ -1,5 +1,6 @@
 import { Finding, Score, WorkspaceReport } from './types';
 import { scoreSummary } from './scoring';
+import { MAX_EDITOR_FILE_BYTES } from './languages';
 // Import de types seulement, effacé à la compilation : ce module ne charge pas
 // `measure.js` (ni `child_process`) pour autant.
 import type { EnergyEstimate, MeasureResult } from './measure';
@@ -177,6 +178,27 @@ export function buildWebviewHtml(
       <tbody>${rows}</tbody>
     </table>
   `, nonce, fileName ? `script-src 'nonce-${nonce}';` : '');
+}
+
+// ---------------------------------------------------------------------------
+// Fichier trop volumineux
+// ---------------------------------------------------------------------------
+
+/** Explication commune à l'infobulle de la barre d'état et au panneau. */
+export function tooLargeMessage(): string[] {
+  return [
+    `Ce fichier dépasse ${MAX_EDITOR_FILE_BYTES / 1e6} Mo : il n'est pas analysé dans l'éditeur.`,
+    'En ligne de commande : plugin-eco <fichier> (peut prendre plusieurs secondes).',
+  ];
+}
+
+/** Rapport d'un fichier non analysé car trop volumineux : ni score, ni bouton. */
+export function buildTooLargeHtml(fileName: string, nonce: string): string {
+  return html(`
+    <h1>⚡ Rapport éco — fichier</h1>
+    <div class="subtitle">${esc(fileName)}</div>
+    <div class="worst">${tooLargeMessage().map(esc).join('<br>')}</div>
+  `, nonce);
 }
 
 // ---------------------------------------------------------------------------
