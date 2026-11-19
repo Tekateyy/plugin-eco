@@ -75,10 +75,16 @@ const HAS_FROM = /\bFROM\b/;
  * Une liste de colonnes plausible : `*`, plusieurs colonnes, un appel ou une
  * colonne qualifiée — ou un seul mot (`SELECT id FROM`), éventuellement après
  * `DISTINCT`/`ALL`. Deux mots nus à la suite sans virgule, comme dans
- * « Select a file from the list », sont de la prose. Limite assumée : une phrase
- * à un seul mot entre les deux (« Select one from the list ») passe encore.
+ * « Select a file from the list », sont de la prose.
  */
 const COLUMN_LIST = /[*,(.]|^\s*(?:(?:DISTINCT|ALL)\s+)?\S+\s*$/;
+
+/**
+ * Un déterminant juste après `FROM` signe une phrase (« Select one from the
+ * list »), jamais un nom de table. `A` est volontairement absent : c'est un alias
+ * de table courant (`FROM a`), et « Select one from a list » reste un faux positif.
+ */
+const PROSE_AFTER_FROM = /^\s*(?:THE|AN|THIS|THAT|THESE|THOSE|YOUR|MY|OUR|THEIR|ITS)\b/;
 
 function looksLikeQuery(upper: string): boolean {
   if (!SQL_STARTS.test(upper)) return false;
@@ -94,6 +100,8 @@ function looksLikeQuery(upper: string): boolean {
     lastSelectEnd = m.index + m[0].length;
   }
   if (lastSelectEnd < 0) return false;
+
+  if (PROSE_AFTER_FROM.test(upper.slice(from.index + from[0].length))) return false;
 
   return COLUMN_LIST.test(head.slice(lastSelectEnd));
 }

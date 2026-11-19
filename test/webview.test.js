@@ -132,3 +132,26 @@ describe('panneau de mesure', () => {
     assert.match(html, /&lt;img/);
   });
 });
+
+describe('rapport d\'un fichier trop volumineux', () => {
+  const { buildTooLargeHtml, tooLargeMessage } = require('../out/webview');
+
+  test('affiche le fichier et l\'explication, sans score ni bouton', () => {
+    const html = buildTooLargeHtml('C:/p/bundle.js', 'n');
+    assert.match(html, /bundle\.js/);
+    assert.match(html, /dépasse 1 Mo/);
+    assert.match(html, /plugin-eco &lt;fichier&gt;/);
+    assert.doesNotMatch(html, /class="dpe-box/);
+    assert.doesNotMatch(html, /<button|<script/);
+  });
+
+  test('même explication que l\'infobulle de la barre d\'état', () => {
+    assert.strictEqual(tooLargeMessage().length, 2);
+    assert.match(tooLargeMessage()[0], /1 Mo/);
+  });
+
+  test('le nom de fichier est échappé', () => {
+    const html = buildTooLargeHtml('<img src=x onerror=alert(1)>.js', 'n');
+    assert.doesNotMatch(html, /<img src=x/);
+  });
+});

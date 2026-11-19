@@ -4,7 +4,9 @@ import { initParser, parse } from './parser';
 import { defaultCoefficients, estimate, runMeasured } from './measure';
 import { collectFindings, filterDisabled } from './rules';
 import { computeScore, scoreSummary } from './scoring';
-import { buildMeasureHtml, buildWebviewHtml, buildWorkspaceHtml } from './webview';
+import {
+  buildMeasureHtml, buildTooLargeHtml, buildWebviewHtml, buildWorkspaceHtml, tooLargeMessage,
+} from './webview';
 import { analyzeWorkspace } from './workspace';
 import { MAX_EDITOR_FILE_BYTES, isSupported, specFor } from './languages';
 import { inferContext } from './context';
@@ -30,6 +32,8 @@ let lastFindings: Finding[] = [];
 let lastScore: Score = { letter: 'A', value: 100, findingCount: { high: 0, medium: 0, low: 0 } };
 let lastFileName = '';
 let lastPartial = false;
+/** Le dernier fichier actif dépassait MAX_EDITOR_FILE_BYTES : rien n'a été analysé. */
+let lastTooLarge = false;
 
 /** Panneau de la mesure à l'exécution, distinct du rapport. */
 let measurePanel: vscode.WebviewPanel | undefined;
@@ -165,12 +169,17 @@ function analyzeDocument(document: vscode.TextDocument): void {
   if (document.getText().length > MAX_EDITOR_FILE_BYTES) {
     diagnosticCollection.delete(document.uri);
     statusBarItem.text = '⚡ Éco: fichier trop volumineux';
-    statusBarItem.tooltip = [
-      `Ce fichier dépasse ${MAX_EDITOR_FILE_BYTES / 1e6} Mo : il n'est pas analysé dans l'éditeur.`,
-      'En ligne de commande : plugin-eco <fichier> (peut prendre plusieurs secondes).',
-    ].join('\n');
+    statusBarItem.tooltip = tooLargeMessage().join('\n');
     statusBarItem.backgroundColor = undefined;
     statusBarItem.show();
+
+    // Le panneau suit le fichier actif : il ne doit pas garder le rapport du précédent.
+    lastFileName = document.fileName;
+    lastTooLarge = true;
+    if (panel && panelMode === 'file') {
+      panel.title = '⚡ Rapport Éco';
+      panel.webview.html = fileReportHtml();
+    }
     return;
   }
 
@@ -190,6 +199,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
     lastScore = score;
     lastFileName = document.fileName;
     lastPartial = partial;
+    lastTooLarge = false;
 
     // Diagnostics inline
     diagnosticCollection.set(document.uri, findings.map(f => {
@@ -225,7 +235,7 @@ function analyzeDocument(document: vscode.TextDocument): void {
     // Mettre à jour le panneau uniquement si on est en mode fichier
     if (panel && panelMode === 'file') {
       panel.title = '⚡ Rapport Éco';
-      panel.webview.html = buildWebviewHtml(findings, score, document.fileName, getNonce(), partial);
+      panel.webview.html = fileReportHtml();
     }
   } catch {
     // Silencieux (fichier incomplet en cours de frappe)
@@ -242,7 +252,7 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
     // Rafraîchir si on repasse en mode fichier
     if (panelMode === 'file') {
       panel.title = '⚡ Rapport Éco';
-      panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce(), lastPartial);
+      panel.webview.html = fileReportHtml();
     }
     return;
   }
@@ -257,7 +267,7 @@ function openOrRevealPanel(context: vscode.ExtensionContext): void {
     }
   );
 
-  panel.webview.html = buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce(), lastPartial);
+  panel.webview.html = fileReportHtml();
 
   // Handler : clic sur un fichier dans le rapport workspace → ouvrir dans l'éditeur
   panel.webview.onDidReceiveMessage(async (message) => {
@@ -373,6 +383,13 @@ function contextEvidence(clientSignals: string[], serverSignals: string[]): stri
   if (all.length === 0) return '';
   const shown = all.slice(0, 4).join(', ');
   return ` (${shown}${all.length > 4 ? '…' : ''})`;
+}
+
+/** Rapport du dernier fichier actif : analysé, ou signalé trop volumineux. */
+function fileReportHtml(): string {
+  return lastTooLarge
+    ? buildTooLargeHtml(lastFileName, getNonce())
+    : buildWebviewHtml(lastFindings, lastScore, lastFileName, getNonce(), lastPartial);
 }
 
 function getNonce(): string {
